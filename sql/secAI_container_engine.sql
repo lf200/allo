@@ -26,9 +26,16 @@ CREATE TABLE `container` (
   `id` int NOT NULL AUTO_INCREMENT,
   `container_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '容器名称',
   `container_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '容器id',
+  `name_space` varchar(255) NOT NULL  COMMENT '容器所属命名空间',
+  `status` varchar(255) NOT NULL  COMMENT '容器状态',
+  `restarts` int NOT NULL COMMENT '重启次数',
+  `AGE` varchar(50) NOT NULL COMMENT '容器存活时间',
+  `node_name` varchar(255) DEFAULT NULL COMMENT '所在节点名称',
   `image_id` int NOT NULL COMMENT '关联的镜像id',
   `user_id` int NOT NULL COMMENT '当前容器所属的用户',
-  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `createTime`  datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+  `updateTime`  datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+  `isDelete`    tinyint  default 0                 not null comment '是否删除',
   PRIMARY KEY (`id`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -53,8 +60,10 @@ CREATE TABLE `image` (
   `id` int NOT NULL AUTO_INCREMENT,
   `image_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '镜像名称',
   `url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '拉取地址',
-  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
   `size` bigint NOT NULL COMMENT '镜像大小',
+  `createTime`  datetime default CURRENT_TIMESTAMP not null comment '创建时间',
+  `updateTime`  datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
+  `isDelete`    tinyint  default 0                 not null comment '是否删除',
   PRIMARY KEY (`id`) USING BTREE
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 /*!40101 SET character_set_client = @saved_cs_client */;
