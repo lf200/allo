@@ -22,10 +22,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestPart;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
@@ -58,9 +55,8 @@ public class FileController {
     public BaseResponse<Long> uploadFile(@RequestPart("file") MultipartFile multipartFile,
                                          UploadFileRequest uploadFileRequest, HttpServletRequest request) {
 
-        //TODO 这里的uploadFileRequest为空不知道为什么，感觉是openapi的有bug？
-//        String biz = uploadFileRequest.getBiz();
-        String biz = "model_data";
+        //TODO 这里的通过swagger自动生成的测试接口测试uploadFileRequest为空不知道为什么，初步判定是openapi的有bug，也可能是使用方法不对
+        String biz = uploadFileRequest.getBiz();
         FileUploadBizEnum fileUploadBizEnum = FileUploadBizEnum.getEnumByValue(biz);
         if (fileUploadBizEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
