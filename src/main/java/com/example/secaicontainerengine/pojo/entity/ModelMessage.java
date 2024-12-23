@@ -26,11 +26,20 @@ public class ModelMessage implements Serializable {
     private String weightAddress;
 
     // 模型配置信息（json 对象）
-    // 比如是否需要GPU，模型任务描述等
+    // 比如模型任务描述
     private String modelConfig;
+
+    // 模型需要的资源信息（json 对象）
+    private String resourceConfig;
 
     // 超参数地址
     private String parameterAddress;
+
+    // 所有数据文件夹地址
+    private String allDataAddress;
+
+    // 模型评测状态
+    private Integer status;
 
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

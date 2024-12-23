@@ -54,14 +54,17 @@ create table if not exists image
 -- 模型信息表
 create table if not exists model_message
 (
-    `id`                  BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
-    `userId`             BIGINT        NOT NULL COMMENT '用户ID',
-    `modelAddress`       VARCHAR(512)  NOT NULL COMMENT '模型文件存放地址',
-    `datasetAddress`     VARCHAR(512)  NOT NULL COMMENT '数据集存放地址',
-    `environmentAddress` VARCHAR(512)  NOT NULL COMMENT '运行环境配置文件地址',
-    `weightAddress`      VARCHAR(512)  NOT NULL COMMENT '权重文件存放地址',
-    `parameterAddress`   VARCHAR(512)          NULL COMMENT '模型超参数地址',
-    `modelConfig`         TEXT NULL COMMENT '模型信息(json数组)',
+    `id`                 BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+    `userId`             BIGINT       NOT NULL COMMENT '用户ID',
+    `modelAddress`       VARCHAR(512) NOT NULL COMMENT '模型文件存放地址',
+    `datasetAddress`     VARCHAR(512) NOT NULL COMMENT '数据集存放地址',
+    `environmentAddress` VARCHAR(512) NOT NULL COMMENT '运行环境配置文件地址',
+    `weightAddress`      VARCHAR(512) NOT NULL COMMENT '权重文件存放地址',
+    `parameterAddress`   VARCHAR(512) NULL COMMENT '模型超参数地址',
+    `modelConfig`        TEXT         NULL COMMENT '模型信息(json数组)',
+    `resourceConfig`     TEXT         NULL COMMENT '资源信息(json数组)',
+    `allDataAddress`     VARCHAR(512) NULL COMMENT '模型所有数据的文件夹地址',
+    `status`             INT      DEFAULT 0 COMMENT '模型状态 0-待评测(未上传) 1-待评测(已上传) 2-评测中 3-成功 4-失败',
     `createTime`         DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updateTime`         DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `isDeleted`          TINYINT  DEFAULT 0 COMMENT '逻辑删除标志（0: 正常, 1: 已删除）'

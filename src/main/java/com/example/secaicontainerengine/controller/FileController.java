@@ -10,6 +10,7 @@ import com.example.secaicontainerengine.constant.FileConstant;
 import com.example.secaicontainerengine.exception.BusinessException;
 import com.example.secaicontainerengine.pojo.dto.file.UploadFileRequest;
 import com.example.secaicontainerengine.pojo.dto.model.ModelConfig;
+import com.example.secaicontainerengine.pojo.dto.model.ResourceConfig;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.example.secaicontainerengine.pojo.entity.User;
 import com.example.secaicontainerengine.pojo.enums.FileUploadBizEnum;
@@ -58,7 +59,8 @@ public class FileController {
                                          UploadFileRequest uploadFileRequest, HttpServletRequest request) {
 
         //TODO 这里的uploadFileRequest为空不知道为什么，感觉是openapi的有bug？
-        String biz = uploadFileRequest.getBiz();
+//        String biz = uploadFileRequest.getBiz();
+        String biz = "model_data";
         FileUploadBizEnum fileUploadBizEnum = FileUploadBizEnum.getEnumByValue(biz);
         if (fileUploadBizEnum == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
@@ -89,7 +91,13 @@ public class FileController {
             if(modelConfig != null) {
                 modelMessage.setModelConfig(JSONUtil.toJsonStr(modelConfig));
             }
-            // 下面save会报错
+            ResourceConfig resourceConfig = uploadFileRequest.getResourceConfig();
+            if(resourceConfig != null) {
+                modelMessage.setResourceConfig(JSONUtil.toJsonStr(resourceConfig));
+            }
+            // 更新数据库
+            modelMessage.setAllDataAddress(model_save_path);
+            modelMessage.setUserId(loginUser.getId());
             boolean result = modelMessageService.save(modelMessage);
             ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
             Long newModelMessageId = modelMessage.getId();
