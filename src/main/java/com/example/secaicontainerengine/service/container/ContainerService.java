@@ -1,6 +1,5 @@
 package com.example.secaicontainerengine.service.container;
 
-import com.example.secaicontainerengine.context.SchedulerContext;
 import freemarker.template.TemplateException;
 
 import java.io.ByteArrayInputStream;
@@ -10,9 +9,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public interface ContainerService {
-
-    //用于管理每个用户的定时调度上下文
-    Map<String, SchedulerContext> userContexts = new ConcurrentHashMap<>();
 
     //初始化接口
     List<ByteArrayInputStream> init(String userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException;
@@ -36,7 +32,5 @@ public interface ContainerService {
      */
     String getStatus(String containerName);
 
-    //日志接口，用于每隔60s收集日志
-    void collectLogs(String userId, String containerName, String filePath) throws IOException;
 
 }

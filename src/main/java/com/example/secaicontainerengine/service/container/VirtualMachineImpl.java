@@ -44,8 +44,4 @@ public class VirtualMachineImpl implements ContainerService {
         return "";
     }
 
-    @Override
-    public void collectLogs(String userId, String containerName, String filePath) throws IOException {
-
-    }
 }

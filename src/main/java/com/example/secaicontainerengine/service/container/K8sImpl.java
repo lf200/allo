@@ -1,6 +1,5 @@
 package com.example.secaicontainerengine.service.container;
 
-import com.example.secaicontainerengine.context.SchedulerContext;
 import com.example.secaicontainerengine.pojo.entity.Container;
 import com.example.secaicontainerengine.util.PodUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +12,7 @@ import io.fabric8.kubernetes.client.Watcher;
 import io.fabric8.kubernetes.client.WatcherException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -43,6 +43,9 @@ public class K8sImpl implements ContainerService {
     @Autowired
     private PodUtil podUtil;
 
+    @Value("${k8s.yaml}")
+    private String k8sYaml;
+
     //初始化接口
     public List<ByteArrayInputStream> init(String userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException {
         List<ByteArrayInputStream> streams = new ArrayList<>();
@@ -62,7 +65,7 @@ public class K8sImpl implements ContainerService {
             values.put("container_name", value);
             values.put("image", value);
             //生成填充好的yml文件字节流
-            String yamlContent = renderTemplate("template/Next.yml", values);
+            String yamlContent = renderTemplate(k8sYaml, values);
             ByteArrayInputStream ymlStream = new ByteArrayInputStream(yamlContent.getBytes());
             streams.add(ymlStream);
         }
@@ -71,20 +74,12 @@ public class K8sImpl implements ContainerService {
 
     //启动接口
     public void start(String userId, List<ByteArrayInputStream> streams) throws IOException {
-        //如果该用户还没有上下文，初始化一个新的上下文
-        userContexts.computeIfAbsent(userId, id -> new SchedulerContext(streams.size()));
-
         for (ByteArrayInputStream stream : streams) {
             //获取pod的名字
             String podName = getName(stream);
             taskExecutor.execute(() -> {
                 //创建Pod
                 HasMetadata metadata = K8sClient.resource(stream).inNamespace("default").create();
-                try {
-                    collectLogs(userId, podName, "/home/secAI/test.txt");
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
                 watchStatus(userId, podName);
             });
         }
@@ -92,8 +87,6 @@ public class K8sImpl implements ContainerService {
 
     //监听接口1-持续监听指定的pod状态
     public void watchStatus(String userId, String podName) {
-        SchedulerContext userContext = userContexts.get(userId);
-        Map<String, ScheduledFuture<?>> taskMap = userContext.getTaskMap();
 
         final CountDownLatch closeLatch = new CountDownLatch(1);
         Watch watch = K8sClient.pods().inNamespace("default").withName(podName).watch(new Watcher<Pod>() {
@@ -115,22 +108,14 @@ public class K8sImpl implements ContainerService {
                             String containerKey = userId + ":" +podName;
                             redisTemplate.opsForValue().set(containerKey, container);
                             log.info("启动接口：容器实例已记录到Redis中-" + podName);
-                            try {
-                                collectLogs(userId, podName, "/var/log/secAI/test.txt");
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
-                            }
                         } else if (phase.equals("Succeeded")) {
                             deleteSingle(userId, podName);
-                            stopLoggingTask(podName, taskMap);
                         } else if (phase.equals("Failed")) {
                             deleteSingle(userId, podName);
-                            stopLoggingTask(podName, taskMap);
                         }
                         break;
                     }
                     case DELETED: {
-                        stopLoggingTask(podName, taskMap);
                         closeLatch.countDown();
                         break;
                     }
@@ -147,7 +132,6 @@ public class K8sImpl implements ContainerService {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } finally {
-            cleanupUserContext(userId, userContext);
             watch.close();
         }
     }
@@ -160,60 +144,6 @@ public class K8sImpl implements ContainerService {
             return pod.getStatus().getPhase();
         } else {
             return "该Pod不存在";
-        }
-    }
-
-    //日志接口-搜集指定pod的日志，并记录到指定的文件中
-    public void collectLogs(String userId, String podName, String filePath) throws IOException {
-        SchedulerContext userContext = userContexts.get(userId);
-        ScheduledExecutorService scheduler = userContext.getScheduler();
-        Map<String, ScheduledFuture<?>> taskMap = userContext.getTaskMap();
-        if(taskMap.containsKey(podName)){
-            return;
-        }
-
-        //开启定时任务，记录日志
-        Runnable logTask = ()-> {
-            try {
-                log.info("开始记录日志");
-                String logContent = K8sClient.pods().inNamespace("default").withName(podName).getLog();
-                System.out.println("logContent: " + logContent);
-                System.out.println("filePath: " + filePath);
-                File file = new File(filePath);
-                if(!file.exists()){
-                    file.createNewFile();
-                }
-                //以追加方式打开文件
-                try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-                    writer.append(logContent);
-                    writer.newLine();
-                    writer.flush();
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        };
-        ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(logTask, 0, 1, TimeUnit.SECONDS);
-        taskMap.put(podName, task);
-
-    }
-
-    //停止记录日志任务
-    private void stopLoggingTask(String podName, Map<String, ScheduledFuture<?>> taskMap) {
-        ScheduledFuture<?> task = taskMap.remove(podName);
-        if (task != null) {
-            task.cancel(true);
-            log.info("停止日志记录任务：" + podName);
-        }
-    }
-
-    // 清理用户上下文
-    private void cleanupUserContext(String userId, SchedulerContext userContext) {
-        // 当所有任务完成后，清理相关的上下文
-        if (userContext.getTaskMap().isEmpty()) {
-            userContexts.remove(userId);
-            userContext.getScheduler().shutdownNow();
-            log.info("已移除用户 " + userId + " 的上下文并关闭定时任务线程池");
         }
     }
 
