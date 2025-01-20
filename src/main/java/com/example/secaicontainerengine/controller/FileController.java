@@ -14,9 +14,7 @@ import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.example.secaicontainerengine.pojo.entity.User;
 import com.example.secaicontainerengine.pojo.enums.FileUploadBizEnum;
 import com.example.secaicontainerengine.service.User.UserService;
-import com.example.secaicontainerengine.service.container.ContainerService;
-import com.example.secaicontainerengine.service.modelmessage.ModelMessageService;
-import com.example.secaicontainerengine.util.ThrowUtils;
+import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,9 +26,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
 
 import static com.example.secaicontainerengine.util.FileUtils.processFilesInDirectory;
 import static com.example.secaicontainerengine.util.FileUtils.unzipFile;
@@ -44,7 +41,7 @@ public class FileController {
     private UserService userService;
 
     @Autowired
-    private ModelMessageService modelMessageService;
+    private ModelEvaluationService modelEvaluationService;
 
     @Autowired
     private KubernetesClient K8sClient;
@@ -52,9 +49,14 @@ public class FileController {
     @Autowired
     private SftpUploader sftpUploader;
 
-    @Value("${nfs.path}")
+    @Value("${nfs.rootPath}")
     private String nfsPath;
 
+    @Value("${nfs.origin-data}")
+    private String originDataPath;
+
+    @Autowired
+    private ExecutorService taskExecutor;
 
     /**
      * 文件上传，并解压文件，同时将解压后的模型的相关文件的地址保存到数据表model_message中
@@ -65,7 +67,7 @@ public class FileController {
      * @return
      */
     @PostMapping("/upload")
-    public String uploadFile(@RequestPart("file") MultipartFile multipartFile,
+    public Map<String, Object> uploadFile(@RequestPart("file") MultipartFile multipartFile,
                              UploadFileRequest uploadFileRequest, HttpServletRequest request) {
 
         //验证上传的文件是否满足要求
@@ -86,8 +88,8 @@ public class FileController {
         String uuid = RandomStringUtils.randomAlphanumeric(8);
         String filename = uuid + "-" + multipartFile.getOriginalFilename();
         String filepath = String.format("/%s/%s/%s", fileUploadBizEnum.getValue(), loginUser.getId(), filename);
-        filepath = FileConstant.FILE_BASE_PATH + filepath;
-        File file = new File(filepath);
+        String localFilepath = FileConstant.FILE_BASE_PATH + filepath;
+        File file = new File(localFilepath);
         // 创建目录
         File parentDirectory = file.getParentFile(); // 获取父目录
         if (!parentDirectory.exists()) {
@@ -97,54 +99,55 @@ public class FileController {
             }
         }
 
-        //解压文件
-        try {
-            multipartFile.transferTo(file);
-            String model_save_path = unzipFile(filepath, parentDirectory.getAbsolutePath());
-            ModelMessage modelMessage = processFilesInDirectory(model_save_path);
-            modelMessage.setUserId(loginUser.getId());
-            ModelConfig modelConfig = uploadFileRequest.getModelConfig();
-            if(modelConfig != null) {
-                modelMessage.setModelConfig(JSONUtil.toJsonStr(modelConfig));
-            }
-            ResourceConfig resourceConfig = uploadFileRequest.getResourceConfig();
-            if(resourceConfig != null) {
-                modelMessage.setResourceConfig(JSONUtil.toJsonStr(resourceConfig));
-            }
-            // 更新数据库
-            modelMessage.setAllDataAddress(model_save_path);
-            modelMessage.setUserId(loginUser.getId());
-            boolean result = modelMessageService.save(modelMessage);
-            ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
-            Long newModelMessageId = modelMessage.getId();
+        ModelMessage modelMessage = new ModelMessage();
+        modelMessage.setUserId(loginUser.getId());
+        modelEvaluationService.save(modelMessage);
+        Long modelId = modelMessage.getId();
 
-        } catch (Exception e) {
-            log.error("file upload error, filepath = " + filepath, e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
-        }
+
+        // 使用线程处理文件保存和解压操作
+        taskExecutor.submit(() -> {
+            try {
+                // 保存文件到本地
+                multipartFile.transferTo(file);
+                log.info("文件已保存到: " + localFilepath);
+
+                // 解压文件
+                String modelSavePath = unzipFile(localFilepath, parentDirectory.getAbsolutePath());
+                log.info("文件已解压到: " + modelSavePath);
+
+                // 模型保存路径（此处可执行进一步操作）
+                processFilesInDirectory(modelMessage, modelSavePath);
+                log.info("文件处理完成");
+
+            } catch (Exception e) {
+                log.error("file upload error, filepath = " + localFilepath, e);
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "上传失败");
+            }
+        });
 
 
         //把解压后的目录上传到nfs服务器
-        new Thread(()->{
+        taskExecutor.submit(() -> {
             try {
                 log.info("开始上传文件到nfs服务器...");
-                sftpUploader.uploadDirectory(FileConstant.FILE_BASE_PATH + File.separator + fileUploadBizEnum.getValue() + File.separator + loginUser.getId(),
-                        nfsPath + File.separator + loginUser.getId());
-                log.info("上传到nfs服务器成功");
+                // 这里好像有问题，sftp协议好像默认以/为分隔符，如果使用了File.separator在windows系统下则会变成\导致报错
+                String remoteDir  = nfsPath + File.separator + fileUploadBizEnum.getValue() + File.separator + loginUser.getId() + File.separator + modelId + File.separator + originDataPath;
+                sftpUploader.uploadDirectory(loginUser.getId(), FileConstant.FILE_BASE_PATH + File.separator + fileUploadBizEnum.getValue() + File.separator + loginUser.getId(),
+                        remoteDir, modelId);
+
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
-        }).start();
-
-        //创建并运行容器
-        new Thread(() -> {
-            K8sClient.load(FileController.class.getClassLoader().getResourceAsStream("template/Pod.yml"))
-                    .inNamespace("default")
-                    .create();
-        }).start();
+        });
 
 
-        return "请求成功";
+        // 返回模型ID,方便点击评测按钮时候确定评测的模型
+        Map<String, Object> response = new HashMap<>();
+        response.put("modelId", modelId);
+        response.put("message", "模型上传中...");
+        return response;
+
 
     }
 

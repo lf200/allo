@@ -52,7 +52,7 @@ public class ModelMessage implements Serializable {
     private LocalDateTime updateTime;
 
     @TableLogic
-    private Integer isDelete;
+    private Integer isDeleted;
 
     @Serial
     @TableField(exist = false)
