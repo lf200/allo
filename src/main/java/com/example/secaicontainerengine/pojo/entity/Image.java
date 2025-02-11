@@ -3,7 +3,6 @@ package com.example.secaicontainerengine.pojo.entity;
 
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.fasterxml.jackson.annotation.JsonFormat;
-import io.swagger.v3.oas.models.security.SecurityScheme;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,7 +20,7 @@ public class Image implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private Integer id;
+    private Long id;
 
     private String imageName;
 

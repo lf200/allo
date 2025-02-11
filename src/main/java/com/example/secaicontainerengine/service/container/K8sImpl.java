@@ -1,5 +1,6 @@
 package com.example.secaicontainerengine.service.container;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.secaicontainerengine.mapper.ContainerMapper;
 import com.example.secaicontainerengine.pojo.entity.Container;
@@ -20,7 +21,10 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -29,7 +33,7 @@ import static com.example.secaicontainerengine.util.YamlUtil.renderTemplate;
 
 @Service(value = "k8sContainerImpl")
 @Slf4j
-public class K8sImpl implements ContainerService{
+public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements ContainerService{
 
     @Autowired
     private KubernetesClient K8sClient;
@@ -61,8 +65,12 @@ public class K8sImpl implements ContainerService{
     @Value("${sftp.host}")
     private String nfsIp;
 
+    @Autowired
+    private ContainerMapper containerMapper;
+
+
     //初始化接口
-    public List<ByteArrayInputStream> init(String userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException {
+    public List<ByteArrayInputStream> init(Long userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException {
         List<ByteArrayInputStream> streams = new ArrayList<>();
         for(String value: imageUrl.values()){
             //pod命名方式：url+用户id
@@ -129,45 +137,68 @@ public class K8sImpl implements ContainerService{
     }
 
     //启动接口
-    public void start(String userId, List<ByteArrayInputStream> streams) throws IOException {
+    public void start(Long userId, Long modelId, List<ByteArrayInputStream> streams) throws IOException {
         for (ByteArrayInputStream stream : streams) {
-            //获取pod的名字
-            String podName = getName(stream);
+            //获取容器的名字
+            String containerName = getName(stream);
             taskExecutor.execute(() -> {
-                //创建Pod
+                //创建容器
                 HasMetadata metadata = K8sClient.resource(stream).inNamespace("default").create();
-                watchStatus(userId, podName);
+                watchStatus(userId, modelId, containerName);
             });
         }
     }
 
-    //监听接口1-持续监听指定的pod状态
-    public void watchStatus(String userId, String podName) {
-
+    //监听接口1-持续监听指定的容器状态
+    public void watchStatus(Long userId, Long modelId, String containerName) {
         final CountDownLatch closeLatch = new CountDownLatch(1);
-        Watch watch = K8sClient.pods().inNamespace("default").withName(podName).watch(new Watcher<Pod>() {
+        Watch watch = K8sClient.pods().inNamespace("default").withName(containerName).watch(new Watcher<Pod>() {
             @Override
             public void eventReceived(Action action, Pod pod) {
                 String phase = pod.getStatus().getPhase();
                 log.info("action: " + action +" phase：" + phase);
+
+                Container container = Container.builder()
+                        .containerName(containerName)
+                        .containerId(pod.getMetadata().getUid())
+                        .nameSpace(pod.getMetadata().getNamespace())
+                        .status(pod.getStatus().getPhase())
+                        .restarts(0)
+                        .AGE(String.valueOf(Duration.between(
+                                OffsetDateTime.parse(pod.getMetadata().getCreationTimestamp()).toInstant(),
+                                Instant.now()).getSeconds()))
+                        .nodeName(pod.getStatus().getNominatedNodeName())
+                        .imageId(0L)
+                        .userId(userId)
+                        .modelId(modelId)
+                        .updateTime(LocalDateTime.now())
+                        .build();
+
                 switch (action) {
                     case ADDED:
                     case MODIFIED: {
                         //把创建好的Pod实例保存在redis中
                         if(phase.equals("Running")) {
-                            log.info("启动接口：已启动的Pod名称-" + podName);
-                            Container container = Container.builder()
-                                    .containerName(podName)
-                                    .userId(Integer.valueOf(userId))
-                                    .createTime(LocalDateTime.now())
-                                    .build();
-                            String containerKey = userId + ":" +podName;
+                            log.info("启动接口：已启动的Pod名称-" + containerName);
+                            String containerKey = userId + ":" +containerName;
+                            //保存容器实例到redis中
                             redisTemplate.opsForValue().set(containerKey, container);
-                            log.info("启动接口：容器实例已记录到Redis中-" + podName);
-                        } else if (phase.equals("Succeeded")) {
-                            deleteSingle(userId, podName);
-                        } else if (phase.equals("Failed")) {
-                            deleteSingle(userId, podName);
+                            //保存容器实例到mysql中
+                            Container existContainer = containerMapper.selectOne(new LambdaQueryWrapper<Container>()
+                                    .eq(Container::getContainerName, containerName));
+                            if(existContainer != null) {
+                                //如果当前容器实例已存在，则更新
+                                containerMapper.update(container, new LambdaQueryWrapper<Container>()
+                                        .eq(Container::getContainerName, containerName));
+                            }else {
+                                //如果当前容器实例不存在，则插入一条新的容器实例
+                                containerMapper.insert(container);
+                            }
+                            log.info("启动接口：容器实例已记录到Redis中-" + containerName);
+                        } else if (phase.equals("Succeeded") || phase.equals("Failed")) {
+                            deleteSingle(userId, containerName);
+                            containerMapper.update(container, new LambdaQueryWrapper<Container>()
+                                    .eq(Container::getContainerName, containerName));
                         }
                         break;
                     }
@@ -192,9 +223,9 @@ public class K8sImpl implements ContainerService{
         }
     }
 
-    //监听接口2-只输出一次pod的状态
-    public String getStatus(String podName) {
-        Pod pod = K8sClient.pods().inNamespace("default").withName(podName).get();
+    //监听接口2-只输出一次容器的状态
+    public String getStatus(String containerName) {
+        Pod pod = K8sClient.pods().inNamespace("default").withName(containerName).get();
         if (pod != null) {
             // 输出 Pod 的 Phase
             return pod.getStatus().getPhase();
@@ -204,8 +235,8 @@ public class K8sImpl implements ContainerService{
     }
 
 
-    //回收接口1-删除指定用户的所有pod
-    public void deleteAll(String userId) {
+    //回收接口1-删除指定用户的所有容器
+    public void deleteAll(Long userId) {
         //获取该用户下的所有key
         String pattern = userId+":*";
         Set<String> keys = redisTemplate.keys(pattern);
@@ -229,8 +260,8 @@ public class K8sImpl implements ContainerService{
         });
     }
 
-    //回收接口2-删除用户的单个pod
-    public void deleteSingle(String userId, String containerName) {
+    //回收接口2-删除用户的单个容器
+    public void deleteSingle(Long userId, String containerName) {
         String containerKey = userId + ":" + containerName;
         redisTemplate.delete(containerKey);
         K8sClient.pods().inNamespace("default").withName(containerName).delete();

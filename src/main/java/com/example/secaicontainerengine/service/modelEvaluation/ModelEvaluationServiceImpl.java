@@ -62,7 +62,7 @@ public class ModelEvaluationServiceImpl extends ServiceImpl<ModelMessageMapper, 
         session.disconnect();
 
         // 使用 K8sClient 启动 Pod
-        containerService.start(String.valueOf(modelMessage.getUserId()), streams);
+        containerService.start(modelMessage.getUserId(), modelMessage.getId(), streams);
 
 
     }

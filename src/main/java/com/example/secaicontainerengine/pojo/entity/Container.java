@@ -20,7 +20,7 @@ public class Container implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private Integer id;
+    private Long id;
 
     private String containerName;
 
@@ -36,9 +36,11 @@ public class Container implements Serializable {
 
     private String nodeName;
 
-    private Integer imageId;
+    private Long imageId;
 
-    private Integer userId;
+    private Long userId;
+
+    private Long modelId;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;

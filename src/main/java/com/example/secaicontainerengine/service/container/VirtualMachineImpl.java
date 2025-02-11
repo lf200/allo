@@ -12,11 +12,11 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-public class VirtualMachineImpl implements ContainerService {
+public class VirtualMachineImpl extends ServiceImpl<ContainerMapper, Container> implements ContainerService {
 
 
     @Override
-    public List<ByteArrayInputStream> init(String userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException {
+    public List<ByteArrayInputStream> init(Long userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException {
         return List.of();
     }
 
@@ -27,22 +27,22 @@ public class VirtualMachineImpl implements ContainerService {
 
 
     @Override
-    public void start(String userId, List<ByteArrayInputStream> streams) throws IOException {
+    public void start(Long userId, Long modelId, List<ByteArrayInputStream> streams) throws IOException {
 
     }
 
     @Override
-    public void deleteAll(String userId) {
+    public void deleteAll(Long userId) {
 
     }
 
     @Override
-    public void deleteSingle(String userId, String containerName) {
+    public void deleteSingle(Long userId, String containerName) {
 
     }
 
     @Override
-    public void watchStatus(String userId, String containerName) {
+    public void watchStatus(Long userId, Long modelId, String containerName) {
 
     }
 

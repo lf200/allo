@@ -43,7 +43,7 @@ public class Log implements Serializable {
     private String messageValue;
 
     @TableId(value = "id", type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
 
 }

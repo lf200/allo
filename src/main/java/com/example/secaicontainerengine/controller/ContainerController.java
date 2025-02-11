@@ -30,7 +30,7 @@ public class ContainerController {
     @PostMapping("/start")
     public String start(@RequestBody RequestDTO requestDTO) throws TemplateException, IOException {
         //获取请求的用户id
-        String userId = requestDTO.getUserId();
+        Long userId = requestDTO.getUserId();
         //获取请求的业务列表
         List<String> imagesName = RequestDTOUtil.getImagesName(requestDTO);
         //获取每个镜像的参数
@@ -47,19 +47,19 @@ public class ContainerController {
         log.info("imageUrl = {}", imageUrl);
 
         List streams = containerService.init(userId, imageUrl, imageParam);
-        containerService.start(userId, streams);
+        containerService.start(userId, 31441L, streams);
         return "请求成功";
     }
 
     @DeleteMapping("/delete/{userId}")
-    public void delete(@PathVariable String userId) {
+    public void delete(@PathVariable Long userId) {
         log.info("开始回收用户{}的容器：", userId);
         containerService.deleteAll(userId);
     }
 
-    @GetMapping("/monitor/{podName}")
-    public String monitor(@PathVariable String podName) {
-        return containerService.getStatus(podName);
+    @GetMapping("/monitor/{containerName}")
+    public String monitor(@PathVariable String containerName) {
+        return containerService.getStatus(containerName);
     }
 
     
