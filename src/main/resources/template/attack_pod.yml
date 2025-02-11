@@ -18,10 +18,10 @@ spec:
     - name: origin-data
       nfs:
         server: ${nfsIP}
-        path: ${rootPath}/model_data/${userId}/${modelId}/${originData}
+        path: ${rootPath}/${userId}/${modelId}/model_data/${originData}
         readOnly: false
     - name: adversarial-data
       nfs:
         server: ${nfsIP}
-        path: ${rootPath}/model_data/${userId}/${modelId}/${attackData}
+        path: ${rootPath}/${userId}/${modelId}/model_data/${attackData}
         readOnly: false
