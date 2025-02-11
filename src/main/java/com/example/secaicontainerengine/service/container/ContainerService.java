@@ -1,5 +1,6 @@
 package com.example.secaicontainerengine.service.container;
 
+import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import freemarker.template.TemplateException;
 
 import java.io.ByteArrayInputStream;
@@ -12,6 +13,8 @@ public interface ContainerService {
 
     //初始化接口
     List<ByteArrayInputStream> init(String userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException;
+
+    List<ByteArrayInputStream> initNew(ModelMessage modelMessage, List<String> podYamlFile, String modelName) throws IOException, TemplateException;
 
     //启动接口
     void start(String userId, List<ByteArrayInputStream> streams) throws IOException;

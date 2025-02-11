@@ -29,7 +29,7 @@ logging:
 
 mybatis-plus:
   configuration:
-    map-underscore-to-camel-case: false  # 是否开启下划线和驼峰的映射
+    map-underscore-to-camel-case: true  # 是否开启下划线和驼峰的映射
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 这个配置设置 MyBatis 的日志实现，指定为 StdOutImpl 表示将日志直接输出到标准输出（控制台）。
   global-config:
     db-config:
@@ -56,3 +56,6 @@ nfs:
   # /home/nfs/k8s/model_data/userId/modelId/originData
   rootPath: /home/nfs/k8s
   origin-data: originData
+
+es:
+  name: secai-logs
