@@ -2,22 +2,25 @@ package com.example.secaicontainerengine.util;
 
 import com.example.secaicontainerengine.common.ErrorCode;
 import com.example.secaicontainerengine.exception.BusinessException;
+import com.example.secaicontainerengine.pojo.dto.model.EvaluationConfig;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.SftpException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
+import org.yaml.snakeyaml.DumperOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.Constructor;
+import java.io.*;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Vector;
+import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+
+import static com.example.secaicontainerengine.util.YamlUtil.renderTemplate;
 
 @Slf4j
 public class FileUtils {
@@ -165,7 +168,7 @@ public class FileUtils {
                 // 判断一级目录名称
                 if ("model".equals(fileName)) {
                     modelMessage.setModelAddress(absolutePath);
-                } else if ("dataset".equals(fileName)) {
+                } else if ("data".equals(fileName)) {
                     modelMessage.setDatasetAddress(absolutePath);
                 }
             } else {
@@ -183,7 +186,10 @@ public class FileUtils {
         return modelMessage;
     }
 
-    public static void generateRunSh(String condaEnv, Path runShPath) throws IOException {
+    // 生成模型运行脚本文件
+    public static void generateRunSh(String condaEnv, Path runShPath, String modelFileName) throws IOException {
+
+
         // 原始脚本模板（使用变量替换环境名）
         String scriptContent = "#!/bin/bash\n\n" +
                 "# 确保脚本在执行时不会中途退出\n" +
@@ -196,9 +202,11 @@ public class FileUtils {
                 "echo \"Activating conda environment: " + condaEnv + "\"\n" +
                 "source activate " + condaEnv + "\n\n" +
                 "# 3. 运行模型测试代码(这里用模型代码代替)\n" +
-                "echo \"Running minist_detect_train.py...\"\n" +
+                "echo \"Running" + modelFileName +  "...\"\n" +
+//                "echo \"Running cifar10_detect_train.py...\"\n" +
                 "export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1\n" +
-                "python3 /app/userData/modelData/model/minist_detect_train.py\n\n" +
+                "python3 /app/userData/modelData/model/" + modelFileName + "\n\n" +
+//                "python3 /app/userData/modelData/model/cifar10_detect_train.py\n\n" +
                 "# 4. 更新数据库\n" +
                 "echo \"Running update_table.py...\"\n" +
                 "python3 /app/systemData/database_code/update_table.py\n\n" +
@@ -252,6 +260,30 @@ public class FileUtils {
         } else {
             throw new IOException("指定的解压目录无效: " + modelSavePath);
         }
+    }
+
+    // 返回指定路径下的第一个py结尾的文件名（为了获取到用户上传的文件中的模型运行文件名称，方便后续使用）
+    public static String findFirstPyFileName(String basePath) {
+        // 1. 校验路径有效性
+        Path targetDir = Paths.get(basePath);
+        if (!Files.exists(targetDir) || !Files.isDirectory(targetDir)) {
+            return null; // 路径不存在或不是目录
+        }
+
+        // 2. 遍历目标路径下的直接子文件（非递归）
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(targetDir)) {
+            for (Path file : stream) {
+                // 检查是否是普通文件且后缀为 .py
+                if (Files.isRegularFile(file) && file.getFileName().toString().endsWith(".py")) {
+                    return file.getFileName().toString(); // 返回文件名（如 "test.py"）
+                }
+            }
+        } catch (IOException e) {
+            // 处理目录访问异常（如权限不足）
+            e.printStackTrace();
+        }
+
+        return null; // 未找到 .py 文件
     }
 }
 
