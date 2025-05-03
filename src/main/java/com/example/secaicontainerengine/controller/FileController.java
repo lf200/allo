@@ -2,11 +2,16 @@ package com.example.secaicontainerengine.controller;
 
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.json.JSONUtil;
 import com.example.secaicontainerengine.common.ErrorCode;
 import com.example.secaicontainerengine.config.SftpUploader;
 import com.example.secaicontainerengine.constant.FileConstant;
 import com.example.secaicontainerengine.exception.BusinessException;
 import com.example.secaicontainerengine.pojo.dto.file.UploadFileRequest;
+import com.example.secaicontainerengine.pojo.dto.model.BusinessConfig;
+import com.example.secaicontainerengine.pojo.dto.model.EvaluationConfig;
+import com.example.secaicontainerengine.pojo.dto.model.ModelConfig;
+import com.example.secaicontainerengine.pojo.dto.model.ResourceConfig;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.example.secaicontainerengine.pojo.entity.User;
 import com.example.secaicontainerengine.pojo.enums.FileUploadBizEnum;
@@ -18,6 +23,7 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -32,8 +38,8 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
-import static com.example.secaicontainerengine.util.FileUtils.processFilesInDirectory;
-import static com.example.secaicontainerengine.util.FileUtils.unzipFile;
+import static com.example.secaicontainerengine.common.ErrorCode.SYSTEM_ERROR;
+import static com.example.secaicontainerengine.util.FileUtils.*;
 
 @RestController
 @RequestMapping("/file")
@@ -69,11 +75,6 @@ public class FileController {
 
     /**
      * 文件上传，并解压文件，同时将解压后的模型的相关文件的地址保存到数据表model_message中
-     *
-     * @param multipartFile
-     * @param uploadFileRequest
-     * @param request
-     * @return
      */
     @PostMapping("/upload")
     public Map<String, Object> uploadFile(@RequestPart("file") MultipartFile multipartFile,
@@ -128,6 +129,10 @@ public class FileController {
                 // 获取解压后的目录的最后一级并修改为 modelData
                 modelSavePath = FileUtils.renameModelData(modelSavePath);
 
+                // 获取用户上传的文件中的模型代码名称，方便后面评测脚本使用
+                String modelFilePath = modelSavePath + "/" + "model";
+                String modelFileName = findFirstPyFileName(modelFilePath);
+
                 // 复制 Dockerfile 到解压后的目录
                 Path dockerSourcePath = Paths.get(System.getProperty("user.dir"), "src", "main", "resources", "Docker", "Dockerfile");
 
@@ -150,7 +155,7 @@ public class FileController {
 
                 // 将模型评测相关的代码生成的脚本文件生成到压缩后的目录
                 Path runShPath = Paths.get(modelSavePath, "run.sh");
-                FileUtils.generateRunSh(condaEnv, runShPath);
+                FileUtils.generateRunSh(condaEnv, runShPath, modelFileName);
 
 
                 log.info("文件处理完成");
