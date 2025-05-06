@@ -78,11 +78,14 @@ create table if not exists model_evaluation
    `userId` BIGINT NOT NULL COMMENT '用户ID',                -- 用户ID
    `backdoorAttackScore` DECIMAL(5, 2), -- 后门攻击评测得分（例如：95.75）
    `backdoorAttackStatus` ENUM('待评测', '评测中', '已完成') NOT NULL, -- 后门攻击评测状态
+   `backdoorAttackResult` JSON COMMENT '后门攻击运行结果',
    `adversarialAttackScore` DECIMAL(5, 2), -- 对抗攻击评测得分（例如：85.60）
    `adversarialAttackStatus` ENUM('待评测', '评测中', '已完成') NOT NULL, -- 对抗攻击评测状态
+   `adversarialAttackResult` JSON COMMENT '对抗攻击运行结果',
    `createTime`         DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
    `updateTime`         DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
    `isDeleted`          TINYINT  DEFAULT 0 COMMENT '逻辑删除标志（0: 正常, 1: 已删除）'
+
 ) comment '评测信息表' collate = utf8mb4_unicode_ci;
 
 -- 日志表
