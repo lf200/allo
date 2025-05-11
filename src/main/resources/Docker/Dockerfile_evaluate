@@ -33,8 +33,7 @@ RUN conda run -n ${condaEnv} conda install pymysql
 
 # 激活 Conda 环境并安装依赖（使用 pip）
 # 先升级 pip 避免版本过旧导致安装问题
-RUN echo "Install required packages via pip" \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+RUN echo "Install required packages via pip" && \
     conda run -n ${condaEnv} pip install --upgrade pip && \
     conda run -n ${condaEnv} pip install \
         adversarial-robustness-toolbox \

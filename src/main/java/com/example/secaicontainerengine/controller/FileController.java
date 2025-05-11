@@ -78,7 +78,7 @@ public class FileController {
      */
     @PostMapping("/upload")
     public Map<String, Object> uploadFile(@RequestPart("file") MultipartFile multipartFile,
-                                          @RequestPart("data") UploadFileRequest uploadFileRequest,
+                                          UploadFileRequest uploadFileRequest,
                                           HttpServletRequest request) {
 
         //验证上传的文件是否满足要求
@@ -112,25 +112,6 @@ public class FileController {
 
         ModelMessage modelMessage = new ModelMessage();
         modelMessage.setUserId(loginUser.getId());
-
-        ModelConfig modelConfig = uploadFileRequest.getModelConfig();
-        if(modelConfig != null) {
-            modelMessage.setModelConfig(JSONUtil.toJsonStr(modelConfig));
-        }else{
-            throw new BusinessException(SYSTEM_ERROR,"modelConfig上传失败");
-        }
-        ResourceConfig resourceConfig = uploadFileRequest.getResourceConfig();
-        if(resourceConfig != null) {
-            modelMessage.setResourceConfig(JSONUtil.toJsonStr(resourceConfig));
-        }else{
-            throw new BusinessException(SYSTEM_ERROR,"resourceConfig上传失败");
-        }
-        BusinessConfig businessConfig = uploadFileRequest.getBusinessConfig();
-        if(businessConfig != null) {
-            modelMessage.setBusinessConfig(JSONUtil.toJsonStr(businessConfig));
-        }else{
-            throw new BusinessException(SYSTEM_ERROR,"businessConfig上传失败");
-        }
         modelEvaluationService.save(modelMessage);
         Long modelId = modelMessage.getId();
 
@@ -178,15 +159,6 @@ public class FileController {
                 Path runShPath = Paths.get(modelSavePath, "run.sh");
 //                FileUtils.generateRunSh(condaEnv, runShPath, modelFileName);
                 FileUtils.generateEvaluateRunSh(condaEnv, runShPath);
-
-
-                // 生成模型评测配置文件(userConfig)
-                // 构建创建用户的评测配置文件的对象(userConfig)
-                EvaluationConfig evaluationConfig = new EvaluationConfig();
-                BeanUtils.copyProperties(modelConfig, evaluationConfig);
-                evaluationConfig.setEvaluateMethods(businessConfig.getEvaluateMethods());
-                String configsPath = modelSavePath + "/" + "evaluationConfigs";
-                generateEvaluationYamlConfigs(configsPath,evaluationConfig);
 
 
                 log.info("文件处理完成");
