@@ -2,11 +2,16 @@ package com.example.secaicontainerengine.controller;
 
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.json.JSONUtil;
 import com.example.secaicontainerengine.common.ErrorCode;
 import com.example.secaicontainerengine.config.SftpUploader;
 import com.example.secaicontainerengine.constant.FileConstant;
 import com.example.secaicontainerengine.exception.BusinessException;
 import com.example.secaicontainerengine.pojo.dto.file.UploadFileRequest;
+import com.example.secaicontainerengine.pojo.dto.model.BusinessConfig;
+import com.example.secaicontainerengine.pojo.dto.model.EvaluationConfig;
+import com.example.secaicontainerengine.pojo.dto.model.ModelConfig;
+import com.example.secaicontainerengine.pojo.dto.model.ResourceConfig;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.example.secaicontainerengine.pojo.entity.User;
 import com.example.secaicontainerengine.pojo.enums.FileUploadBizEnum;
@@ -18,6 +23,7 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
+import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -32,7 +38,9 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
+import static com.example.secaicontainerengine.common.ErrorCode.SYSTEM_ERROR;
 import static com.example.secaicontainerengine.util.FileUtils.*;
+import static com.example.secaicontainerengine.util.FileUtils.generateEvaluationYamlConfigs;
 
 @RestController
 @RequestMapping("/file")
@@ -71,7 +79,7 @@ public class FileController {
      */
     @PostMapping("/upload")
     public Map<String, Object> uploadFile(@RequestPart("file") MultipartFile multipartFile,
-                                          UploadFileRequest uploadFileRequest,
+                                          @RequestPart("data") UploadFileRequest uploadFileRequest,
                                           HttpServletRequest request) {
 
         //验证上传的文件是否满足要求
@@ -105,6 +113,25 @@ public class FileController {
 
         ModelMessage modelMessage = new ModelMessage();
         modelMessage.setUserId(loginUser.getId());
+
+        ModelConfig modelConfig = uploadFileRequest.getModelConfig();
+        if(modelConfig != null) {
+            modelMessage.setModelConfig(JSONUtil.toJsonStr(modelConfig));
+        }else{
+            throw new BusinessException(SYSTEM_ERROR,"modelConfig上传失败");
+        }
+        ResourceConfig resourceConfig = uploadFileRequest.getResourceConfig();
+        if(resourceConfig != null) {
+            modelMessage.setResourceConfig(JSONUtil.toJsonStr(resourceConfig));
+        }else{
+            throw new BusinessException(SYSTEM_ERROR,"resourceConfig上传失败");
+        }
+        BusinessConfig businessConfig = uploadFileRequest.getBusinessConfig();
+        if(businessConfig != null) {
+            modelMessage.setBusinessConfig(JSONUtil.toJsonStr(businessConfig));
+        }else{
+            throw new BusinessException(SYSTEM_ERROR,"businessConfig上传失败");
+        }
         modelEvaluationService.save(modelMessage);
         Long modelId = modelMessage.getId();
 
@@ -152,6 +179,15 @@ public class FileController {
                 Path runShPath = Paths.get(modelSavePath, "run.sh");
 //                FileUtils.generateRunSh(condaEnv, runShPath, modelFileName);
                 FileUtils.generateEvaluateRunSh(condaEnv, runShPath);
+
+
+                // 生成模型评测配置文件(userConfig)
+                // 构建创建用户的评测配置文件的对象(userConfig)
+                EvaluationConfig evaluationConfig = new EvaluationConfig();
+                BeanUtils.copyProperties(modelConfig, evaluationConfig);
+                evaluationConfig.setEvaluateMethods(businessConfig.getEvaluateMethods());
+                String configsPath = modelSavePath + "/" + "evaluationConfigs";
+                generateEvaluationYamlConfigs(configsPath,evaluationConfig);
 
 
                 log.info("文件处理完成");
