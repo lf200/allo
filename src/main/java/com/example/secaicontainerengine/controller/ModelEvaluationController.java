@@ -6,10 +6,10 @@ import com.example.secaicontainerengine.common.ResultUtils;
 import com.example.secaicontainerengine.exception.BusinessException;
 import com.example.secaicontainerengine.pojo.dto.model.ModelEvaluationRequest;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
-import com.example.secaicontainerengine.pojo.entity.ScheduledTable;
+import com.example.secaicontainerengine.pojo.entity.WaitingScheduled;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelMessageService;
-import com.example.secaicontainerengine.service.scheduledTable.ScheduledTableService;
+import com.example.secaicontainerengine.service.waitingScheduled.WaitingScheduledService;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,7 +36,7 @@ public class ModelEvaluationController {
     private ExecutorService taskExecutor;
 
     @Autowired
-    private ScheduledTableService scheduledTaskService;
+    private WaitingScheduledService waitingScheduledService;
 
 
     @PostMapping("/start")
@@ -82,9 +82,9 @@ public class ModelEvaluationController {
                 return ResultUtils.error(4001,"数据正在上传至nfs服务器，请稍后再试");
             // 1在数据库中代表已经上传至nfs服务器
             case 1:
-                ScheduledTable task=new ScheduledTable();
+                WaitingScheduled task=new WaitingScheduled();
                 task.setModelId(modelId);
-                scheduledTaskService.save(task);
+                waitingScheduledService.save(task);
                 break;
             // 2代表该模型在评测中
             case 2:

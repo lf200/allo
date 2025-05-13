@@ -88,13 +88,8 @@ create table if not exists model_evaluation
 CREATE TABLE if not exists `scheduled_table` (
     `id` bigint NOT NULL AUTO_INCREMENT COMMENT '自增主键',
     `modelId` bigint DEFAULT NULL COMMENT '该任务关联的模型id',
-    `status` int DEFAULT '0' COMMENT '当前任务的状态（0代表还未调度，1代表已经调度，2代表评测成功，3代表评测失败，4代表已经计算评测结果）',
-    `createTime` datetime DEFAULT CURRENT_TIMESTAMP COMMENT '该任务的创建时间',
-    `scheduleTime` datetime DEFAULT NULL COMMENT '调度时间',
-    `reviewer` varchar(255) DEFAULT NULL COMMENT '扩展字段，当前调度任务的审核人',
-    `isWaiting` int DEFAULT NULL COMMENT '扩展字段，是否在等待资源满足当前任务的需求',
    PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COMMENT='调度任务表，用于保存所有被调度的任务';
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COMMENT='调度任务表，用于保存等待被调度的任务';
 
 -- 评测方法表
 CREATE TABLE IF NOT EXISTS evaluation_method (
