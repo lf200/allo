@@ -1,20 +1,21 @@
 package com.example.secaicontainerengine.pojo.entity;
 
+
 import com.baomidou.mybatisplus.annotation.*;
+import com.example.secaicontainerengine.pojo.dto.result.PodResult;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
 import lombok.Data;
 
 import java.io.Serial;
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Map;
 
 @Data
 @Builder
-@TableName("model_evaluation")
-public class ModelEvaluation {
-
+@TableName("evaluation_result")
+public class EvaluationResult implements Serializable {
     @TableId(type = IdType.AUTO)
     private Long id;
 
@@ -22,9 +23,15 @@ public class ModelEvaluation {
 
     private Long userId;
 
-    private String modelScore;
+    private Long evaluateMethodId;
+
+    private BigDecimal score;
+
+    private String result;
 
     private String status;
+
+    private String evaluateParameters;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;

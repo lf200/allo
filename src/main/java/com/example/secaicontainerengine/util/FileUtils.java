@@ -238,7 +238,7 @@ public class FileUtils {
                 "# 3. 运行模型评测代码\n" +
                 "echo \"Running  模型评测...\"\n" +
                 "export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1\n" +
-                "python3 /app/systemData/evaluation_code/art/main4.py\n\n" +
+                "python3 /app/systemData/evaluation_code/art/main8.py\n\n" +
                 "# 4. 更新数据库\n" +
                 "echo \"Running update_table.py...\"\n" +
                 "python3 /app/systemData/database_code/update_table.py\n\n" +

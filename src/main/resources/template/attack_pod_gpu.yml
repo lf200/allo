@@ -7,7 +7,10 @@ spec:
   containers:
     - name: ${containerName}
       image: ${imageName}
-      command: ["/bin/bash", "-c", "bash /app/userData/modelData/run.sh"]
+      imagePullPolicy: IfNotPresent
+#      command: ["/bin/bash", "-c", "cd /app/userData/modelData/model && bash /app/userData/modelData/run.sh"]
+#      command: ["/bin/bash", "-c", "cd /app/systemData/evaluation_code/art && bash /app/userData/modelData/run.sh"]
+      command: ["/bin/bash", "-c", "cd /app/userData/modelData/ && bash /app/userData/modelData/run.sh"]
       ports:
         - containerPort: 80
       volumeMounts:

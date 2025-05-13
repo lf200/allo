@@ -1,10 +1,16 @@
 package com.example.secaicontainerengine.service.container;
 
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.secaicontainerengine.mapper.ContainerMapper;
-import com.example.secaicontainerengine.pojo.entity.Container;
-import com.example.secaicontainerengine.pojo.entity.ModelMessage;
+import com.example.secaicontainerengine.mapper.EvaluationMethodMapper;
+import com.example.secaicontainerengine.mapper.EvaluationResultMapper;
+import com.example.secaicontainerengine.pojo.dto.model.BusinessConfig;
+import com.example.secaicontainerengine.pojo.entity.*;
+import com.example.secaicontainerengine.service.modelEvaluation.EvaluationResultService;
+import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
 import com.example.secaicontainerengine.util.PodUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import freemarker.template.TemplateException;
@@ -17,6 +23,7 @@ import io.fabric8.kubernetes.client.WatcherException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -80,6 +87,17 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
 
     @Value("${docker.registryHost}")
     private String registryHost;
+
+    @Autowired
+    private EvaluationResultService evaluationResultService;
+
+    @Autowired
+    private EvaluationMethodMapper evaluationMethodMapper;
+    @Autowired
+    private EvaluationResultMapper evaluationResultMapper;
+    @Lazy
+    @Autowired
+    private ModelEvaluationService modelEvaluationService;
 
     //初始化接口
     public List<ByteArrayInputStream> init(Long userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException {
@@ -155,14 +173,65 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
 
     //启动接口
     public void start(Long userId, Long modelId, List<ByteArrayInputStream> streams) throws IOException {
+
+        // 1.初始化CountDownLatch数量
+        CountDownLatch latch = new CountDownLatch(streams.size());
+
+
         for (ByteArrayInputStream stream : streams) {
-            //获取容器的名字
+            // 2.获取容器的名字
             String containerName = getName(stream);
+
+            // 3.获取到pod对应的评测任务对应的评测方法
+            String evaluateMethod = containerName.split("-")[2];
+            QueryWrapper<EvaluationMethod> queryWrapper = new QueryWrapper<>();
+            queryWrapper.eq("methodName", evaluateMethod);
+            EvaluationMethod evaluationMethod = evaluationMethodMapper.selectOne(queryWrapper);
+            Long evaluationMethodId = evaluationMethod.getId();
+
+            // 4.启动评测任务
             taskExecutor.execute(() -> {
-                //创建容器
+                // 记录开始时间
+                long startTime = System.currentTimeMillis();
+
+                // 修改单次评测任务表评测状态
+                EvaluationResult evaluationResult = EvaluationResult.builder()
+                        .evaluateMethodId(evaluationMethodId)
+                        .userId(userId)
+                        .modelId(modelId)
+                        .status("评测中")
+                        .build();
+                evaluationResultMapper.insert(evaluationResult);
+
+                // 创建容器
                 HasMetadata metadata = K8sClient.resource(stream).inNamespace("default").create();
+
+                // 记录结束时间
+                long endTime = System.currentTimeMillis();
+
+                // 评测任务开启到创建pod命令发出的时间
+                long executionTime = endTime - startTime;
+
+                System.out.println("开启pod花费时间: " + executionTime + " 毫秒");
                 watchStatus(userId, modelId, containerName);
+                latch.countDown();
             });
+        }
+        try {
+            // 最多等待60分钟
+            boolean allCompleted = latch.await(60, TimeUnit.MINUTES);
+
+            if (allCompleted) {
+                // 7. 所有Pod完成后，执行统计分数逻辑
+                evaluationResultService.calculateAndUpdateScores(modelId);
+            } else {
+                // 处理超时（如终止未完成的Pod、记录警告）
+                modelEvaluationService.handleTimeout(modelId);
+            }
+        } catch (InterruptedException e) {
+            // 处理中断（恢复中断状态）
+            Thread.currentThread().interrupt();
+            log.error("等待Pod完成时被中断");
         }
     }
 
@@ -211,6 +280,7 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
                             }
 //                        } else if (phase.equals("Succeeded") || phase.equals("Failed")) {
                         } else if (phase.equals("Succeeded")) {
+//                            latch.countDown();
                             deleteSingle(userId, containerName);
                             Container existContainer = containerMapper.selectOne(new LambdaQueryWrapper<Container>()
                                     .eq(Container::getContainerName, containerName));

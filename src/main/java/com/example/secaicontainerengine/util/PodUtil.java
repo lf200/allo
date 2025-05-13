@@ -1,5 +1,6 @@
 package com.example.secaicontainerengine.util;
 
+import com.example.secaicontainerengine.pojo.dto.result.PodResult;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodList;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -10,6 +11,7 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.math.BigDecimal;
 
 @Slf4j
 @Component
@@ -33,6 +35,12 @@ public class PodUtil {
             }
         }
         return false;
+    }
+
+    // todo 示例逻辑，需根据实际业务调整
+    public static BigDecimal calculateScoreFromResult(PodResult rawResult){
+        BigDecimal accuracy = rawResult.getAccuracy();
+        return accuracy == null ? BigDecimal.ZERO : accuracy;
     }
 
     /**

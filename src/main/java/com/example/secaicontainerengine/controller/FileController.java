@@ -17,6 +17,7 @@ import com.example.secaicontainerengine.pojo.entity.User;
 import com.example.secaicontainerengine.pojo.enums.FileUploadBizEnum;
 import com.example.secaicontainerengine.service.User.UserService;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
+import com.example.secaicontainerengine.service.modelEvaluation.ModelMessageService;
 import com.example.secaicontainerengine.util.FileUtils;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import jakarta.annotation.Resource;
@@ -52,6 +53,9 @@ public class FileController {
 
     @Autowired
     private ModelEvaluationService modelEvaluationService;
+
+    @Autowired
+    private ModelMessageService modelMessageService;
 
     @Value("${docker.registryHost}")
     private String registryHost;
@@ -132,7 +136,7 @@ public class FileController {
         }else{
             throw new BusinessException(SYSTEM_ERROR,"businessConfig上传失败");
         }
-        modelEvaluationService.save(modelMessage);
+        modelMessageService.save(modelMessage);
         Long modelId = modelMessage.getId();
 
 
@@ -151,8 +155,8 @@ public class FileController {
                 modelSavePath = FileUtils.renameModelData(modelSavePath);
 
                 // 获取用户上传的文件中的模型代码名称，方便后面评测脚本使用
-                String modelFilePath = modelSavePath + "/" + "model";
-                String modelFileName = findFirstPyFileName(modelFilePath);
+//                String modelFilePath = modelSavePath + "/" + "model";
+//                String modelFileName = findFirstPyFileName(modelFilePath);
 
                 // 复制 Dockerfile 到解压后的目录
 //                Path dockerSourcePath = Paths.get(System.getProperty("user.dir"), "src", "main", "resources", "Docker", "Dockerfile");

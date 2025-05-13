@@ -76,12 +76,8 @@ create table if not exists model_evaluation
    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键',   -- 唯一的ID，自动增长
    `modelId` BIGINT NOT NULL COMMENT '模型ID',               -- 模型ID
    `userId` BIGINT NOT NULL COMMENT '用户ID',                -- 用户ID
-   `backdoorAttackScore` DECIMAL(5, 2), -- 后门攻击评测得分（例如：95.75）
-   `backdoorAttackStatus` ENUM('待评测', '评测中', '已完成') NOT NULL, -- 后门攻击评测状态
-   `backdoorAttackResult` JSON COMMENT '后门攻击运行结果',
-   `adversarialAttackScore` DECIMAL(5, 2), -- 对抗攻击评测得分（例如：85.60）
-   `adversarialAttackStatus` ENUM('待评测', '评测中', '已完成') NOT NULL, -- 对抗攻击评测状态
-   `adversarialAttackResult` JSON COMMENT '对抗攻击运行结果',
+   `modelScore` JSON COMMENT '模型评测类别得分（总得分，后门攻击，对抗攻击..）',
+   `status` ENUM('待评测', '评测中', '成功', '失败') NOT NULL,
    `createTime`         DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
    `updateTime`         DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
    `isDeleted`          TINYINT  DEFAULT 0 COMMENT '逻辑删除标志（0: 正常, 1: 已删除）'
@@ -98,7 +94,33 @@ CREATE TABLE if not exists `scheduled_table` (
     `reviewer` varchar(255) DEFAULT NULL COMMENT '扩展字段，当前调度任务的审核人',
     `isWaiting` int DEFAULT NULL COMMENT '扩展字段，是否在等待资源满足当前任务的需求',
    PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='调度任务表，用于保存所有被调度的任务';
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COMMENT='调度任务表，用于保存所有被调度的任务';
+
+-- 评测方法表
+CREATE TABLE IF NOT EXISTS evaluation_method (
+     id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '评测方法ID',
+     methodName VARCHAR(50) NOT NULL UNIQUE COMMENT '评测方法名称（如fgsm、pgd）',
+     methodCategory ENUM('adversarialEvaluate', 'backdoorEvaluate') NOT NULL COMMENT '大类（对抗/后门等）',
+     methodType ENUM('whiteBoxEvaluate', 'blackBoxEvaluate', 'backdoorEvaluate') NOT NULL COMMENT '具体类型（白盒/黑盒/后门）',
+     createTime DATETIME DEFAULT CURRENT_TIMESTAMP,
+     updateTime DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+     isDeleted  TINYINT  DEFAULT 0 COMMENT '逻辑删除标志（0: 正常, 1: 已删除）'
+) COMMENT '评测方法表' collate = utf8mb4_unicode_ci;
+
+-- 单次评测任务结果表
+CREATE TABLE IF NOT EXISTS evaluation_result (
+   id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '评测结果ID',
+   modelId BIGINT NOT NULL COMMENT '关联模型ID',
+   userId BIGINT NOT NULL COMMENT '用户ID',                -- 用户ID
+   evaluateMethodId BIGINT NOT NULL COMMENT '关联攻击方法ID（外键引用attack_method.id）',
+   score DECIMAL(5, 2) COMMENT '评测得分',
+   result JSON COMMENT '评测结果',
+   status ENUM('待评测', '评测中', '成功', '失败') NOT NULL,
+   evaluateParameters JSON COMMENT '本次评测的参数（如fgsm的eps=0.4，用JSON存储）',
+   createTime DATETIME DEFAULT CURRENT_TIMESTAMP,
+   updateTime DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   isDeleted  TINYINT  DEFAULT 0 COMMENT '逻辑删除标志（0: 正常, 1: 已删除）'
+) COMMENT '模型在具体攻击方法下的评测结果' collate = utf8mb4_unicode_ci;
 
 -- 日志表
 create table if not exists log

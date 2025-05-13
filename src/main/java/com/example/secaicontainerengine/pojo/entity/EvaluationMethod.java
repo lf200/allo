@@ -6,25 +6,22 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.io.Serial;
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.Map;
 
 @Data
 @Builder
-@TableName("model_evaluation")
-public class ModelEvaluation {
-
+@TableName("evaluation_method")
+public class EvaluationMethod implements Serializable {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private Long modelId;
+    private String methodName;
 
-    private Long userId;
+    private String methodCategory;
 
-    private String modelScore;
-
-    private String status;
+    private String methodType;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
