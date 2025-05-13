@@ -7,6 +7,7 @@ import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.example.secaicontainerengine.pojo.entity.ScheduledTable;
 import com.example.secaicontainerengine.service.container.ContainerService;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
+import com.example.secaicontainerengine.service.modelEvaluation.ModelMessageService;
 import com.example.secaicontainerengine.service.scheduledTable.ScheduledTableService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,7 +27,7 @@ public class ScheduledTask {
     private ContainerService containerService;
 
     @Autowired
-    private ModelEvaluationService modelEvaluationService;
+    private ModelMessageService modelMessageService;
 
     //每5秒扫描一次需要进行评测的模型任务
     @Scheduled(cron = "*/5 * * * * *")
@@ -39,7 +40,7 @@ public class ScheduledTask {
             //调用评测启动接口
 
             //修改容器状态为评测中
-            modelEvaluationService.update(
+            modelMessageService.update(
                     new UpdateWrapper<ModelMessage>()
                             .eq("modelId", modelId)
                             .set("status", 2)

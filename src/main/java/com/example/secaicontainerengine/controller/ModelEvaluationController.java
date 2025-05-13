@@ -8,6 +8,7 @@ import com.example.secaicontainerengine.pojo.dto.model.ModelEvaluationRequest;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.example.secaicontainerengine.pojo.entity.ScheduledTable;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
+import com.example.secaicontainerengine.service.modelEvaluation.ModelMessageService;
 import com.example.secaicontainerengine.service.scheduledTable.ScheduledTableService;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,9 @@ import static com.example.secaicontainerengine.common.ErrorCode.SYSTEM_ERROR;
 @RequestMapping("/api/evaluation")
 @Slf4j
 public class ModelEvaluationController {
+
+    @Autowired
+    private ModelMessageService modelMessageService;
 
     @Autowired
     private ModelEvaluationService modelEvaluationService;
@@ -44,7 +48,7 @@ public class ModelEvaluationController {
 //        modelId = 1889145615706112001L;
 
 
-        ModelMessage modelMessage = modelEvaluationService.getById(modelId);
+        ModelMessage modelMessage = modelMessageService.getById(modelId);
 
 
         // 使用新线程异步执行任务
@@ -68,7 +72,7 @@ public class ModelEvaluationController {
     @PostMapping("/startNew")
     public BaseResponse<?> startModelEvaluationNew(@RequestBody ModelEvaluationRequest modelEvaluationRequest){
         Long modelId = modelEvaluationRequest.getModelId();
-        ModelMessage modelMessage = modelEvaluationService.getById(modelId);
+        ModelMessage modelMessage = modelMessageService.getById(modelId);
         if(modelMessage==null){
             return ResultUtils.error(4000, "不存在该modelId");
         }

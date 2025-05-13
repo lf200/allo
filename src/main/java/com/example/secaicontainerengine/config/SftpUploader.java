@@ -4,6 +4,7 @@ import com.example.secaicontainerengine.handler.UploadStatusWebSocketHandler;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.example.secaicontainerengine.pojo.entity.SftpConnect;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
+import com.example.secaicontainerengine.service.modelEvaluation.ModelMessageService;
 import com.jcraft.jsch.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,7 +25,7 @@ public class SftpUploader {
     private final String username;
     private final String password;
     private final String flag;
-    private final ModelEvaluationService modelEvaluationService;
+    private final ModelMessageService modelMessageService;
     private final UploadStatusWebSocketHandler uploadStatusWebSocketHandler;
 
     public SftpUploader(
@@ -32,14 +33,14 @@ public class SftpUploader {
             @Value("${sftp.port}") int port,
             @Value("${sftp.username}") String username,
             @Value("${sftp.password}") String password,
-            @Value("${sftp.flag}") String flag, ModelEvaluationService modelEvaluationService,
+            @Value("${sftp.flag}") String flag, ModelMessageService modelMessageService,
             UploadStatusWebSocketHandler uploadStatusWebSocketHandler) {
         this.host = host;
         this.port = port;
         this.username = username;
         this.password = password;
         this.flag = flag;
-        this.modelEvaluationService = modelEvaluationService;
+        this.modelMessageService = modelMessageService;
         this.uploadStatusWebSocketHandler = uploadStatusWebSocketHandler;
     }
 
@@ -75,7 +76,7 @@ public class SftpUploader {
 //            log.info("上传到nfs服务器成功");
 
             // 更新数据库
-            ModelMessage modelMessage = modelEvaluationService.getById(modelId);
+            ModelMessage modelMessage = modelMessageService.getById(modelId);
 
             // 获取到上传文件的路径
             // 获取远程目录中的文件和文件夹
@@ -83,7 +84,7 @@ public class SftpUploader {
             String remoteModelPath = remoteDir + File.separator + files.get(0).getFilename();
             modelMessage.setAllDataAddress(remoteModelPath);
             processFilesInRemoteDirectory(sftpChannel, modelMessage, remoteModelPath);
-            modelEvaluationService.updateById(modelMessage);
+            modelMessageService.updateById(modelMessage);
 
             //上传完毕后，删除本地目录
             deleteLocalDirectory(new File(localDir));
