@@ -6,17 +6,21 @@ import com.example.secaicontainerengine.common.ResultUtils;
 import com.example.secaicontainerengine.exception.BusinessException;
 import com.example.secaicontainerengine.pojo.dto.model.ModelEvaluationRequest;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
-import com.example.secaicontainerengine.pojo.entity.WaitingScheduled;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelMessageService;
-import com.example.secaicontainerengine.service.waitingScheduled.WaitingScheduledService;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+
+import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 
 import static com.example.secaicontainerengine.common.ErrorCode.SYSTEM_ERROR;
@@ -36,7 +40,8 @@ public class ModelEvaluationController {
     private ExecutorService taskExecutor;
 
     @Autowired
-    private WaitingScheduledService waitingScheduledService;
+    private OkHttpClient okHttpClient;
+
 
 
     @PostMapping("/start")
@@ -82,9 +87,23 @@ public class ModelEvaluationController {
                 return ResultUtils.error(4001,"数据正在上传至nfs服务器，请稍后再试");
             // 1在数据库中代表已经上传至nfs服务器
             case 1:
-                WaitingScheduled task=new WaitingScheduled();
-                task.setModelId(modelId);
-                waitingScheduledService.save(task);
+                //创建一个调度任务
+                String job=String.format(
+                        "{concurrent:1, status:0, jobGroup:\"DEFAULT\", misfirePolicy:1, cronExpression:\"0/10 * * * * ?\"" +
+                                "invokeTarget:\"evaluateTask.startEvaluation(\"%s\")\", jobName:\"%s\"}", modelId, modelId
+                );
+                okhttp3.RequestBody body = okhttp3.RequestBody.create(job, MediaType.parse("application/json; charset=utf-8"));
+                Request request = new Request.Builder()
+                        .url("http://localhost:8080/monitor/job")
+                        .post(body)
+                        .addHeader("Content-Type", "application/json")
+                        .build();
+                try {
+                    Response response = okHttpClient.newCall(request).execute();
+                    log.info(String.valueOf(response.body()));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
                 break;
             // 2代表该模型在评测中
             case 2:
