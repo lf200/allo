@@ -11,11 +11,8 @@ import com.example.secaicontainerengine.pojo.entity.ModelEvaluation;
 import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.GenerateReport;
 import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.Report.Base.BaseEvaluation;
 import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.Report.CleanAdv;
-import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.Report.Robustness.AdversarialMethodScore;
+import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.Report.Robustness.*;
 import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.Report.Robustness.Environment.Vision.TargetClass.EvtcMethodScore;
-import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.Report.Robustness.RobustnessEvaluation;
-import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.Report.Robustness.RobustnessMetricsCleanAdv;
-import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.Report.Robustness.RobustnessMetricsItem;
 import lombok.Generated;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -243,7 +240,6 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         );
 
         RobustnessMetricsCleanAdv robustnessMetricsCleanAdv = RobustnessMetricsCleanAdv.builder()
-                .environmentMetric(new CleanAdv(new BigDecimal("60.5"), new BigDecimal("20.5")))
                 .adversarialMetric(new CleanAdv(cleanMean, advMean))
                 .gradientSensitivityMetric(new CleanAdv(new BigDecimal("65.5"), new BigDecimal("30.5")))
                 .confidenceVarianceMetric(new CleanAdv(new BigDecimal("68.5"), new BigDecimal("29.5")))
@@ -255,10 +251,17 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
                 .gradientSensitivityMetric(new AdversarialMethodScore(new BigDecimal("40.5"), new BigDecimal("35.5")))
                 .build();
 
+        RobustnessMetricsMean robustnessMetricsMean = RobustnessMetricsMean.builder()
+                .adversarialMetric(new BigDecimal("40.7"))
+                .confidenceVarianceMetric(new BigDecimal("30.5"))
+                .gradientSensitivityMetric(new BigDecimal("26.4"))
+                .build();
+
         RobustnessEvaluation robustnessEvaluation = RobustnessEvaluation.builder()
                 .totalScore(new BigDecimal("60.6"))
                 .robustnessMetricsItem(robustnessMetricsItem)
                 .robustnessMetricsCleanAdv(robustnessMetricsCleanAdv)
+                .robustnessMetricsMean(robustnessMetricsMean)
                 .build();
 
         GenerateReport generateReport = GenerateReport.builder()

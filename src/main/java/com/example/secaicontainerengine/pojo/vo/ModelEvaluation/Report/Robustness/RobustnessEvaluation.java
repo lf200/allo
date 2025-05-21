@@ -14,4 +14,6 @@ public class RobustnessEvaluation {
     private RobustnessMetricsCleanAdv robustnessMetricsCleanAdv;
 
     private RobustnessMetricsItem robustnessMetricsItem;
+
+    private RobustnessMetricsMean robustnessMetricsMean;
 }
