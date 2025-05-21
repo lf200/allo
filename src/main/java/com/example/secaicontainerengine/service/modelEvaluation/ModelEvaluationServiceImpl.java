@@ -127,6 +127,11 @@ public class ModelEvaluationServiceImpl extends ServiceImpl<ModelEvaluationMappe
         modelEvaluation.setUpdateTime(LocalDateTime.now());
         modelEvaluationMapper.updateById(modelEvaluation);
 
+        modelMessage.setStatus(3);
+        modelMessage.setUpdateTime(LocalDateTime.now());
+        modelMessageMapper.updateById(modelMessage);
+
+
         // 使用 K8sClient 启动 Pod
         containerService.start(modelMessage.getUserId(), modelMessage.getId(), streams);
 
@@ -168,6 +173,11 @@ public class ModelEvaluationServiceImpl extends ServiceImpl<ModelEvaluationMappe
         // 3.修改评测状态
         modelEvaluation.setStatus("成功");
         modelEvaluation.setUpdateTime(LocalDateTime.now());
+
+        ModelMessage modelMessage = modelMessageMapper.selectById(modelId);
+        modelMessage.setStatus(4);
+        modelMessage.setUpdateTime(LocalDateTime.now());
+        modelMessageMapper.updateById(modelMessage);
 
         // 4.更新数据表
         int updateCount = modelEvaluationMapper.updateById(modelEvaluation);

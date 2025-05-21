@@ -8,10 +8,7 @@ import com.example.secaicontainerengine.config.SftpUploader;
 import com.example.secaicontainerengine.constant.FileConstant;
 import com.example.secaicontainerengine.exception.BusinessException;
 import com.example.secaicontainerengine.pojo.dto.file.UploadFileRequest;
-import com.example.secaicontainerengine.pojo.dto.model.BusinessConfig;
-import com.example.secaicontainerengine.pojo.dto.model.EvaluationConfig;
-import com.example.secaicontainerengine.pojo.dto.model.ModelConfig;
-import com.example.secaicontainerengine.pojo.dto.model.ResourceConfig;
+import com.example.secaicontainerengine.pojo.dto.model.*;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
 import com.example.secaicontainerengine.pojo.entity.User;
 import com.example.secaicontainerengine.pojo.enums.FileUploadBizEnum;
@@ -145,6 +142,14 @@ public class FileController {
         }else{
             throw new BusinessException(SYSTEM_ERROR,"businessConfig上传失败");
         }
+
+        ShowBusinessConfig showBusinessConfig = uploadFileRequest.getShowBusinessConfig();
+        if(showBusinessConfig != null){
+            modelMessage.setShowBusinessConfig(JSONUtil.toJsonStr(showBusinessConfig));
+        }else{
+            throw new BusinessException(SYSTEM_ERROR,"businessConfig上传失败");
+        }
+
         modelMessageService.save(modelMessage);
         Long modelId = modelMessage.getId();
 

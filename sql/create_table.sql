@@ -55,7 +55,7 @@ create table if not exists model_message
     `businessConfig`     TEXT         NULL COMMENT '业务信息(json数组)',
     `allDataAddress`     VARCHAR(512) NULL COMMENT '模型所有数据的文件夹地址',
 #     `status`             INT      DEFAULT 0 COMMENT '模型状态 0-未上传 1-已上传',
-    `status`             INT      DEFAULT 0 COMMENT '模型状态 0-文件未上传 1-文件上传中 2-文件上传成功 3-模型评测等待中 4-模型评测中 5-模型评测成功',
+    `status`             INT      DEFAULT 0 COMMENT '模型状态 0-文件上传中 1-文件上传成功 2-模型评测等待中 3-模型评测中 4-模型评测成功',
     `createTime`         DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updateTime`         DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `isDeleted`          TINYINT  DEFAULT 0 COMMENT '逻辑删除标志（0: 正常, 1: 已删除）'

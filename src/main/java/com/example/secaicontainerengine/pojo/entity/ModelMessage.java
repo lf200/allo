@@ -43,6 +43,8 @@ public class ModelMessage implements Serializable {
     // 所有数据文件夹地址
     private String allDataAddress;
 
+    private String showBusinessConfig;
+
     // 模型评测状态
     private Integer status;
 
