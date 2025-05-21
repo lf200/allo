@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.*;
+import java.time.LocalDateTime;
 import java.util.Vector;
 
 import static com.example.secaicontainerengine.util.FileUtils.processFilesInRemoteDirectory;
@@ -84,6 +85,7 @@ public class SftpUploader {
             String remoteModelPath = remoteDir + File.separator + files.get(0).getFilename();
             modelMessage.setAllDataAddress(remoteModelPath);
             processFilesInRemoteDirectory(sftpChannel, modelMessage, remoteModelPath);
+            modelMessage.setUpdateTime(LocalDateTime.now());
             modelMessage.setStatus(1);
             modelMessageService.updateById(modelMessage);
 

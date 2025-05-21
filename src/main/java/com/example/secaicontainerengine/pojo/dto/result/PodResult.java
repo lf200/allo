@@ -7,6 +7,8 @@ import java.math.BigDecimal;
 @Data
 public class PodResult {
 
-    private BigDecimal accuracy;
+    private BigDecimal accClean;
+
+    private BigDecimal accAdv;
 
 }

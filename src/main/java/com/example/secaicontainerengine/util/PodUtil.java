@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 @Slf4j
 @Component
@@ -44,8 +45,18 @@ public class PodUtil {
     // 从评测结果计算得分
     // todo 示例逻辑，需根据实际业务调整
     public static BigDecimal calculateScoreFromResult(PodResult rawResult){
-        BigDecimal accuracy = rawResult.getAccuracy();
-        return accuracy == null ? BigDecimal.ZERO : accuracy;
+        BigDecimal accAdv = rawResult.getAccAdv();
+        BigDecimal accClean = rawResult.getAccClean();
+        BigDecimal result = null;
+        if (accClean.signum() == 0) {
+            throw new IllegalArgumentException("除数 accClean 不能为 0");
+        } else {
+            // 设定小数位数和舍入模式（示例：保留4位小数，四舍五入）
+            int scale = 4;
+            RoundingMode roundingMode = RoundingMode.HALF_UP;
+            result = accAdv.divide(accClean, scale, roundingMode);
+        }
+        return result;
     }
 
     /**

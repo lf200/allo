@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -123,6 +124,7 @@ public class ModelEvaluationServiceImpl extends ServiceImpl<ModelEvaluationMappe
         queryWrapper.eq("modelId", modelMessage.getId());
         ModelEvaluation modelEvaluation = modelEvaluationMapper.selectOne(queryWrapper);
         modelEvaluation.setStatus("评测中");
+        modelEvaluation.setUpdateTime(LocalDateTime.now());
         modelEvaluationMapper.updateById(modelEvaluation);
 
         // 使用 K8sClient 启动 Pod
@@ -165,6 +167,7 @@ public class ModelEvaluationServiceImpl extends ServiceImpl<ModelEvaluationMappe
 
         // 3.修改评测状态
         modelEvaluation.setStatus("成功");
+        modelEvaluation.setUpdateTime(LocalDateTime.now());
 
         // 4.更新数据表
         int updateCount = modelEvaluationMapper.updateById(modelEvaluation);

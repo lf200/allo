@@ -6,6 +6,8 @@ import com.example.secaicontainerengine.common.ResultUtils;
 import com.example.secaicontainerengine.exception.BusinessException;
 import com.example.secaicontainerengine.pojo.dto.model.ModelEvaluationRequest;
 import com.example.secaicontainerengine.pojo.entity.ModelMessage;
+import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.GenerateReport;
+import com.example.secaicontainerengine.service.modelEvaluation.EvaluationResultService;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
 import com.example.secaicontainerengine.service.modelEvaluation.ModelMessageService;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
@@ -36,6 +38,9 @@ public class ModelEvaluationController {
 
     @Autowired
     private ModelEvaluationService modelEvaluationService;
+
+    @Autowired
+    private EvaluationResultService evaluationResultService;
 
     @Autowired
     private ExecutorService taskExecutor;
@@ -73,6 +78,12 @@ public class ModelEvaluationController {
         // 立即返回响应，告诉前端评测任务已启动
         return ResultUtils.success("系统正在评测中...");
 
+    }
+
+    @PostMapping("/result/{modelId}")
+    public GenerateReport getResultReport(@PathVariable Long modelId){
+        GenerateReport resultReport = evaluationResultService.getResultReport(modelId);
+        return  resultReport;
     }
 
     // 任务调度方式启动

@@ -33,6 +33,16 @@ public class EvaluationResult implements Serializable {
 
     private String evaluateParameters;
 
+    private Long timeUse;
+
+    /** CPU内存使用量 */
+
+    private Long cpuMemoryUse;
+
+    /** GPU内存使用量 */
+
+    private Long gpuMemoryUse;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
 
