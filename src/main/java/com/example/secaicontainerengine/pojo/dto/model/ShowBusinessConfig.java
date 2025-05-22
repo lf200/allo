@@ -7,8 +7,8 @@ import java.util.List;
 
 @Data
 public class ShowBusinessConfig implements Serializable {
-    private String dimension;
-    private List<String> metrics;
-    private List<String> methods;
+
+    private List<Evaluation> evaluateMethods;
     private static final long serialVersionUID = 1L;
+
 }
