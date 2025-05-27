@@ -225,21 +225,105 @@ public class FileUtils {
 
 
         // 原始脚本模板（使用变量替换环境名）
+//        String scriptContent = "#!/bin/bash\n\n" +
+//                "# 确保脚本在执行时不会中途退出\n" +
+//                "set -e\n\n" +
+//                "# 1. 初始化 Conda 环境\n" +
+//                "echo \"Initializing conda...\"\n" +
+//                "conda init bash\n" +
+//                "#source ~/.bashrc  # 确保 conda 初始化完成\n\n" +
+//                "# 2. 激活指定的 Conda 环境\n" +
+//                "echo \"Activating conda environment: " + condaEnv + "\"\n" +
+//                "source activate " + condaEnv + "\n\n" +
+//                "# 3. 运行模型评测代码并更新数据库\n" +
+//                "echo \"Running  模型评测...\"\n" +
+//                "export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1\n" +
+//                "python3 /app/systemData/evaluation_code/art/eva_start.py\n\n" +
+//                "echo \"All scripts executed successfully!\"\n";
         String scriptContent = "#!/bin/bash\n\n" +
                 "# 确保脚本在执行时不会中途退出\n" +
                 "set -e\n\n" +
-                "# 1. 初始化 Conda 环境\n" +
+                "# 定义临时文件路径（使用固定路径避免权限问题）\n" +
+                "TMP_MEM_FILE=\"/tmp/max_mem.tmp\"\n" +
+                "TMP_GPU_FILE=\"/tmp/max_gpu.tmp\"\n\n" +
+                "# 初始化临时文件（避免残留数据）\n" +
+                "echo 0 > \"$TMP_MEM_FILE\"\n" +
+                "echo 0 > \"$TMP_GPU_FILE\"\n\n" +
+                "# 定义监控函数（后台运行，数据写入临时文件）\n" +
+                "monitor_resources() {\n" +
+                "  echo \"监控进程启动，PID: $$\" >&2\n" +
+                "  while true; do\n" +
+                "    # 获取当前进程组ID（PGID）\n" +
+                "    pgid=$(ps -o pgid= -p $$ | tail -1)\n" +
+                "    if [ -z \"$pgid\" ]; then \n" +
+                "      echo \"无法获取进程组ID，退出监控\" >&2\n" +
+                "      break; \n" +
+                "    fi\n\n" +
+                "    # 计算内存占用\n" +
+                "    total_rss=0\n" +
+                "    for pid in $(pgrep -g $pgid); do\n" +
+                "      rss=$(ps -o rss= -p $pid 2>/dev/null)\n" +
+                "      [ -n \"$rss\" ] && total_rss=$((total_rss + rss))\n" +
+                "    done\n" +
+                "    current_mem_mb=$((total_rss / 1024))\n\n" +
+                "    # 写入内存最大值到临时文件（仅当更大时更新）\n" +
+                "    if [ $current_mem_mb -gt $(cat \"$TMP_MEM_FILE\") ]; then\n" +
+                "      echo \"$current_mem_mb\" > \"$TMP_MEM_FILE\"\n" +
+                "      echo \"[$(date '+%H:%M:%S')] 当前最大内存: ${current_mem_mb} MB\" >&2\n" +
+                "    fi\n\n" +
+                "    # 计算显存占用（写入临时文件）\n" +
+                "    if command -v nvidia-smi &> /dev/null; then\n" +
+                "      current_gpu_mem=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null || echo 0)\n" +
+                "      if [ $current_gpu_mem -gt $(cat \"$TMP_GPU_FILE\") ]; then\n" +
+                "        echo \"$current_gpu_mem\" > \"$TMP_GPU_FILE\"\n" +
+                "        echo \"[$(date '+%H:%M:%S')] 当前最大显存: ${current_gpu_mem} MiB\" >&2\n" +
+                "      fi\n" +
+                "    fi\n\n" +
+                "    sleep 1\n" +
+                "  done\n" +
+                "  echo \"监控进程退出\" >&2\n" +
+                "}\n\n" +
+                "# 启动监控后台进程\n" +
+                "echo \"启动监控进程...\"\n" +
+                "monitor_resources &\n" +
+                "monitor_pid=$!\n\n" +
+                "# 记录主进程ID（$$）和监控进程ID\n" +
+                "main_pid=$$\n" +
+                "echo \"主进程PID: $main_pid, 监控进程PID: $monitor_pid\" >&2\n\n" +
+                "# 运行模型评测（原逻辑不变）\n" +
                 "echo \"Initializing conda...\"\n" +
                 "conda init bash\n" +
-                "#source ~/.bashrc  # 确保 conda 初始化完成\n\n" +
-                "# 2. 激活指定的 Conda 环境\n" +
+                "source ~/.bashrc\n" +
                 "echo \"Activating conda environment: " + condaEnv + "\"\n" +
                 "source activate " + condaEnv + "\n\n" +
-                "# 3. 运行模型评测代码并更新数据库\n" +
-                "echo \"Running  模型评测...\"\n" +
+                "echo \"Running 模型评测...\"\n" +
                 "export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1\n" +
-                "python3 /app/systemData/evaluation_code/art/eva_start.py\n\n" +
-                "echo \"All scripts executed successfully!\"\n";
+                "python3 /app/systemData/evaluation_code/art/eva_start.py &\n" +
+                "python_pid=$!  # 获取Python进程PID\n\n" +
+                "# 等待Python进程完成（精准等待，避免阻塞）\n" +
+                "wait $python_pid  # 仅等待Python进程\n" +
+                "echo \"Python进程已完成，PID: $python_pid\" >&2\n\n" +
+                "# 终止监控进程（原逻辑不变）\n" +
+                "echo \"尝试终止监控进程...\"\n" +
+                "kill -s SIGTERM $monitor_pid 2>/dev/null\n" +
+                "sleep 2  # 等待监控进程响应\n" +
+                "if kill -0 $monitor_pid 2>/dev/null; then\n" +
+                "  kill -s SIGKILL $monitor_pid 2>/dev/null\n" +
+                "  echo \"强制终止监控进程\" >&2\n" +
+                "else\n" +
+                "  echo \"监控进程已终止\" >&2\n" +
+                "fi\n\n" +
+                "# 从临时文件读取最大值（主shell获取数据）\n" +
+                "max_mem=$(cat \"$TMP_MEM_FILE\")\n" +
+                "max_gpu_mem=$(cat \"$TMP_GPU_FILE\")\n\n" +
+                "# 输出结果（修复0值问题）\n" +
+                "echo \"======================================\"\n" +
+                "echo \"评测任务最大内存占用:${max_mem} MB\"\n" +
+                "echo \"评测任务最大显存占用:${max_gpu_mem} MiB\"\n" +
+                "echo \"======================================\"\n\n" +
+                "# 清理临时文件（可选）\n" +
+                "rm -f \"$TMP_MEM_FILE\" \"$TMP_GPU_FILE\"\n" +
+                "echo \"All scripts executed successfully!\"";
 
         try {
             Files.write(runShPath, scriptContent.getBytes());
