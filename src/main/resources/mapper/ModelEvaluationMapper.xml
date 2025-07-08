@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.secaicontainerengine.mapper.ModelEvaluationMapper">
+
+    <update id="upsertJsonField">
+        UPDATE model_evaluation
+        SET ${column} = JSON_SET(
+            CASE
+                WHEN JSON_EXTRACT(${column}, CONCAT('$.', #{key})) IS NOT NULL
+                    THEN ${column}
+                ELSE JSON_INSERT(${column}, CONCAT('$.', #{key}), #{value})
+            END,
+            CONCAT('$.', #{key}), #{value}
+        )
+        WHERE modelId = #{modelId}
+    </update>
+
+</mapper>

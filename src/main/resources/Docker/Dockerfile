@@ -32,6 +32,10 @@ RUN tar -xzvf /opt/conda/envs/${condaEnv}.tar.gz -C /opt/conda/envs/ && \
 RUN echo "install mysql-connector-python"
 RUN conda run -n ${condaEnv} conda install pymysql
 
+# 安装shap和sklearn
+RUN echo "install shap==0.47.2 and scikit-learn==1.5.0"
+RUN conda run -n ${condaEnv} pip install shap==0.47.2 scikit-learn==1.5.0 -i https://pypi.tuna.tsinghua.edu.cn/simple
+
 
 # 设置工作目录
 WORKDIR /app

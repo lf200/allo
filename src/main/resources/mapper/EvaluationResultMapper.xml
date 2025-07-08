@@ -16,4 +16,25 @@
             er.modelId=#{modelId};
     </select>
 
+    <update id="upsertJsonField">
+        UPDATE evaluation_result
+        SET ${column} = JSON_SET(
+            CASE
+                WHEN JSON_EXTRACT(${column}, CONCAT('$.', #{key})) IS NOT NULL
+                    THEN ${column}
+                ELSE JSON_INSERT(${column}, CONCAT('$.', #{key}), #{value})
+            END,
+            CONCAT('$.', #{key}), #{value}
+        )
+        WHERE modelId = #{modelId}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE evaluation_result
+        SET status=#{status}
+        WHERE modelId=#{modelId} AND evaluateMethodId =(
+            SELECT id FROM evaluation_method WHERE methodName=#{metric}
+        )
+    </update>
+
 </mapper>

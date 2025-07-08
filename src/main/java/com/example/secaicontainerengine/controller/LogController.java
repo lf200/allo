@@ -59,23 +59,23 @@ public class LogController {
         return logService.getAllLogByModelId(modelId);
     }
 
-    @DeleteMapping("/container/{containerName}")
-    public void deleteLogByContainerName(@PathVariable String containerName) {
-        log.info("删除该容器的所有日志: "+containerName);
-        logService.deleteByContainerName(containerName);
-    }
-
-    @DeleteMapping("/model/{modelId}")
-    public void deleteLogByModelId(@PathVariable Long modelId) {
-        log.info("删除该模型的所有日志: "+modelId);
-        logService.deleteByModelId(modelId);
-    }
-
-    @DeleteMapping("/time/{lastTime}")
-    public void deleteLogByLastTime(@PathVariable @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime lastTime) {
-        log.info("删除该时间之前的所有日志: "+lastTime);
-        logService.deleteByTime(lastTime);
-    }
+//    @DeleteMapping("/container/{containerName}")
+//    public void deleteLogByContainerName(@PathVariable String containerName) {
+//        log.info("删除该容器的所有日志: "+containerName);
+//        logService.deleteByContainerName(containerName);
+//    }
+//
+//    @DeleteMapping("/model/{modelId}")
+//    public void deleteLogByModelId(@PathVariable Long modelId) {
+//        log.info("删除该模型的所有日志: "+modelId);
+//        logService.deleteByModelId(modelId);
+//    }
+//
+//    @DeleteMapping("/time/{lastTime}")
+//    public void deleteLogByLastTime(@PathVariable @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime lastTime) {
+//        log.info("删除该时间之前的所有日志: "+lastTime);
+//        logService.deleteByTime(lastTime);
+//    }
 
 
 

@@ -25,6 +25,26 @@ spec:
           nvidia.com/gpu: ${gpuNumLimits} # 请求1个vGPUs
           nvidia.com/gpumem: ${gpuMemoryLimits} # 每个vGPU申请3000m显存 （可选，整数类型）
           nvidia.com/gpucores: ${gpuCoreLimits} # 每个vGPU的算力为30%实际显卡的算力 （可选，整数类型）
+      env:
+        - name: modelId
+          value: ${modelId}
+        - name: containerName
+          value: ${containerName}
+        - name: namespace
+          value: default
+        - name: evaluateDimension
+          value: ${evaluateDimension}
+        - name: evaluateMetric
+          value: ${evaluateMetric}
+        - name: resultUrl
+          value: ${resultUrl}
+        - name: resultColumn
+          value: ${resultColumn}
+        - name: logUrl
+          value: ${logUrl}
+        - name: resultPath
+          value: ${rootPath}/${userData}/${userId}/${modelId}/evaluationData
+
   volumes:
     - name: model-data
       nfs:

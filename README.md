@@ -10,3 +10,5 @@
 ## 2.2 数据库报错
 检查`application.yaml`文件中配置的数据库地址、用户名及密码是否正确
 * 相关配置位于spring.datasource选项下
+## 2.3 检查配置文件`localhost`配置项
+需要把`logUrl`和`resultUrl`修改为自己启动的服务的ip

@@ -2,7 +2,6 @@ package com.example.secaicontainerengine.pojo.entity;
 
 
 import com.baomidou.mybatisplus.annotation.*;
-import com.example.secaicontainerengine.pojo.dto.result.PodResult;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
 import lombok.Data;

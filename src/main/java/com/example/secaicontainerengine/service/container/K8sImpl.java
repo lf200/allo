@@ -4,16 +4,15 @@ import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.example.secaicontainerengine.constant.EvaluateDimensionConstant;
 import com.example.secaicontainerengine.mapper.ContainerMapper;
 import com.example.secaicontainerengine.mapper.EvaluationMethodMapper;
 import com.example.secaicontainerengine.mapper.EvaluationResultMapper;
 import com.example.secaicontainerengine.mapper.ModelEvaluationMapper;
-import com.example.secaicontainerengine.pojo.dto.model.BusinessConfig;
 import com.example.secaicontainerengine.pojo.dto.model.EvaluationResultTimeUse;
 import com.example.secaicontainerengine.pojo.dto.model.ResourceConfig;
 import com.example.secaicontainerengine.pojo.entity.*;
 import com.example.secaicontainerengine.service.modelEvaluation.EvaluationResultService;
-import com.example.secaicontainerengine.service.modelEvaluation.ModelEvaluationService;
 import com.example.secaicontainerengine.util.PodUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,17 +20,14 @@ import freemarker.template.TemplateException;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Pod;
-import io.fabric8.kubernetes.api.model.PodCondition;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.Watch;
 import io.fabric8.kubernetes.client.Watcher;
 import io.fabric8.kubernetes.client.WatcherException;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
@@ -52,9 +48,6 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
 
     @Autowired
     private KubernetesClient K8sClient;
-
-    @Autowired
-    private RedisTemplate redisTemplate;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -116,6 +109,12 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
     @Value("${k8s.evaluation-resources.limits.gpu-num}")
     private Integer evaluationGpuNum;
 
+    @Value("${localhost.logUrl}")
+    private String logUrl;
+
+    @Value("${localhost.resultUrl}")
+    private String resultUrl;
+
     //初始化接口
     public List<ByteArrayInputStream> init(Long userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException {
         List<ByteArrayInputStream> streams = new ArrayList<>();
@@ -166,6 +165,12 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
             values.put("gpuCoreLimits",gpuCoreLimits);
             values.put("gpuMemoryLimits",gpuMemoryLimits);
             values.put("gpuNumLimits",gpuNumLimits);
+            values.put("evaluateDimension", EvaluateDimensionConstant.getType(evaluationType));
+            values.put("evaluateMetric", evaluationType);
+            values.put("logUrl", logUrl);
+            values.put("resultUrl", resultUrl);
+            values.put("resultColumn", EvaluateDimensionConstant.getType(evaluationType)+"Result");
+
 
             //生成填充好的yml文件字节流
             String yamlContent = renderTemplate(k8sAdversarialGpuYaml, values);
@@ -332,7 +337,7 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
 //                        } else if (phase.equals("Succeeded") || phase.equals("Failed")) {
                         } else if (phase.equals("Succeeded")) {
 //                            latch.countDown();
-                            deleteSingle(userId, containerName);
+//                            deleteSingle(userId, containerName);
                             Container existContainer = containerMapper.selectOne(new LambdaQueryWrapper<Container>()
                                     .eq(Container::getContainerName, containerName));
                             if(existContainer != null) {

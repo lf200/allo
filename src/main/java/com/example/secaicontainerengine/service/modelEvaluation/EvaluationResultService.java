@@ -1,6 +1,7 @@
 package com.example.secaicontainerengine.service.modelEvaluation;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.example.secaicontainerengine.pojo.dto.result.EvaluationStatus;
 import com.example.secaicontainerengine.pojo.entity.EvaluationResult;
 import com.example.secaicontainerengine.pojo.vo.ModelEvaluation.GenerateReport;
 
@@ -24,4 +25,8 @@ public interface EvaluationResultService extends IService<EvaluationResult> {
     GenerateReport calculateEvaluationReportData(List<EvaluationResult> resultList);
 
     List<Map<String, Object>> getEvaluationDetailByModelId(Long modelId);
+
+    void updateResult(Long modelId, Map<String, String> result, String resultColumn);
+
+    void updateStatus(EvaluationStatus evaluationStatus);
 }

@@ -22,4 +22,6 @@ public interface ModelEvaluationService extends IService<ModelEvaluation> {
     void handleTimeout(Long methodId);
 
     Long getCreateImageTimeByModelId(Long modelId);
+
+    String getJsonValue(String modelId, String evaluateDimension, String metric);
 }

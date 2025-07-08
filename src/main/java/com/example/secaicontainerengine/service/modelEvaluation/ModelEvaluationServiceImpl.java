@@ -245,4 +245,9 @@ public class ModelEvaluationServiceImpl extends ServiceImpl<ModelEvaluationMappe
     public Long getCreateImageTimeByModelId(Long modelId) {
         return modelEvaluationMapper.getCreateImageTimeByModelId(modelId);
     }
+
+    @Override
+    public String getJsonValue(String modelId, String evaluateDimension, String metric) {
+        return modelEvaluationMapper.getJsonValue(modelId, evaluateDimension, metric);
+    }
 }

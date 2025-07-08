@@ -4,6 +4,8 @@ import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.secaicontainerengine.mapper.EvaluationResultMapper;
+import com.example.secaicontainerengine.mapper.ModelEvaluationMapper;
+import com.example.secaicontainerengine.pojo.dto.result.EvaluationStatus;
 import com.example.secaicontainerengine.pojo.dto.result.PodResult;
 import com.example.secaicontainerengine.pojo.entity.EvaluationResult;
 import com.example.secaicontainerengine.pojo.entity.ModelEvaluation;
@@ -14,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -38,6 +41,9 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
     @Autowired
     private EvaluationResultMapper evaluationResultMapper;
+
+    @Autowired
+    private ModelEvaluationMapper modelEvaluationMapper;
 
     @Override
     public void calculateAndUpdateScores(Long modelId) {
@@ -268,5 +274,18 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
     @Override
     public List<Map<String, Object>> getEvaluationDetailByModelId(Long modelId) {
         return evaluationResultMapper.getEvaluationDetailByModelId(modelId);
+    }
+
+    @Override
+    @Transactional
+    public void updateResult(Long modelId, Map<String, String> result, String resultColumn) {
+        for (Map.Entry<String, String> entry : result.entrySet()) {
+            modelEvaluationMapper.upsertJsonField(modelId, resultColumn, entry.getKey(), entry.getValue());
+        }
+    }
+
+    @Override
+    public void updateStatus(EvaluationStatus evaluationStatus) {
+        evaluationResultMapper.updateStatus(evaluationStatus);
     }
 }

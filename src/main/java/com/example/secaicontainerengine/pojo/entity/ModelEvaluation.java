@@ -29,6 +29,10 @@ public class ModelEvaluation implements Serializable {
 
     private String status;
 
+    private String basicResult;
+
+    private String interpretabilityResult;
+
     private Long createImageTime;
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")

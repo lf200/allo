@@ -31,6 +31,16 @@ RUN mkdir -p /opt/conda/envs/${condaEnv} && \
 RUN echo "install mysql-connector-python"
 RUN conda run -n ${condaEnv} conda install pymysql
 
+# 安装shap和sklearn
+RUN echo "install shap==0.47.2 and scikit-learn==1.5.0"
+RUN conda run -n ${condaEnv} pip install shap==0.47.2 scikit-learn==1.5.0 -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 安装requests
+RUN echo "install requests==2.32.3"
+RUN conda run -n ${condaEnv} pip install requests==2.32.3 -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 安装matplotlib
+RUN echo "install matplotlib==3.9.0"
+RUN conda run -n ${condaEnv} pip install matplotlib==3.9.0 -i https://pypi.tuna.tsinghua.edu.cn/simple
+
 # 激活 Conda 环境并安装依赖（使用 pip）
 # 先升级 pip 避免版本过旧导致安装问题
 RUN echo "Install required packages via pip" \

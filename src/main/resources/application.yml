@@ -12,7 +12,7 @@ spring:
     name: secAI-container-engine
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/Sec_ruoyi
+    url: jdbc:mysql://10.195.34.44:3306/Sec_ruoyi
     username: root
     password: root
 
@@ -76,3 +76,11 @@ nfs:
 
 docker:
   registryHost: 10.195.9.104:5000
+#  registryHost: 10.195.76.134:5000
+
+#localhost中的ip，需要修改为自己启动服务的ip
+localhost:
+  logUrl: http://10.195.34.44:8081/log
+  resultUrl: http://10.195.34.44:8081/evaluate/result
+#  logUrl: http://10.195.236.86:8081/log
+#  resultUrl: http://10.195.236.86:8081/evaluate/result

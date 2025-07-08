@@ -30,9 +30,13 @@ public class Log implements Serializable {
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
+    private Long modelId;
+
     private String containerName;
 
-    private String namespace;
+    private String evaluateDimension;
+
+    private String evaluateMetric;
 
     private String messageKey;
 

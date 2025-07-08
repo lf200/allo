@@ -18,8 +18,8 @@ import java.util.List;
 @Mapper
 public interface LogMapper{
 
-    @Insert("INSERT INTO log(containerName, namespace, messageKey, messageValue, logTime) " +
-            "VALUE(#{containerName}, #{namespace}, #{messageKey}, #{messageValue}, #{logTime})")
+    @Insert("INSERT INTO log(modelId, containerName, evaluateDimension, evaluateMetric, messageKey, messageValue) " +
+            "VALUE(#{modelId}, #{containerName}, #{evaluateDimension}, #{evaluateMetric} ,#{messageKey}, #{messageValue})")
     int insert(Log log);
 
     @Select("SELECT messageKey, messageValue, logTime from log WHERE containerName = #{containerName} AND messageKey = #{messageKey} " +
