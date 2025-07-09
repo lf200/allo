@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.example.secaicontainerengine.pojo.entity.ModelEvaluation;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.springframework.http.ResponseEntity;
 
 public interface ModelEvaluationMapper extends BaseMapper<ModelEvaluation> {
 
@@ -17,4 +18,7 @@ public interface ModelEvaluationMapper extends BaseMapper<ModelEvaluation> {
 
     @Select("select ${evaluateDimension}->>'$.${metric}' from model_evaluation where modelId=#{modelId}")
     String getJsonValue(String modelId, String evaluateDimension, String metric);
+
+    @Select("select ${evaluateDimension} from model_evaluation where modelId=#{modelId}")
+    String getResult(String modelId, String evaluateDimension);
 }

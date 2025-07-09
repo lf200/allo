@@ -71,4 +71,10 @@ public class EvaluationResultController {
         }
     }
 
+    @GetMapping
+    public ResponseEntity<?> getResult(@RequestParam String modelId, @RequestParam String evaluateDimension){
+        String result = modelEvaluationService.getResult(modelId, evaluateDimension+"Result");
+        return ResponseEntity.ok(result);
+    }
+
 }

@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -249,5 +250,10 @@ public class ModelEvaluationServiceImpl extends ServiceImpl<ModelEvaluationMappe
     @Override
     public String getJsonValue(String modelId, String evaluateDimension, String metric) {
         return modelEvaluationMapper.getJsonValue(modelId, evaluateDimension, metric);
+    }
+
+    @Override
+    public String getResult(String modelId, String evaluateDimension) {
+        return modelEvaluationMapper.getResult(modelId, evaluateDimension);
     }
 }

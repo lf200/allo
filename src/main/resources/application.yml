@@ -80,7 +80,7 @@ docker:
 
 #localhost中的ip，需要修改为自己启动服务的ip
 localhost:
-  logUrl: http://10.195.34.44:8081/log
-  resultUrl: http://10.195.34.44:8081/evaluate/result
-#  logUrl: http://10.195.236.86:8081/log
-#  resultUrl: http://10.195.236.86:8081/evaluate/result
+#  logUrl: http://10.195.34.44:8081/log
+#  resultUrl: http://10.195.34.44:8081/evaluate/result
+  logUrl: http://10.195.236.86:8081/log
+  resultUrl: http://10.195.236.86:8081/evaluate/result
