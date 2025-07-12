@@ -40,6 +40,19 @@ RUN conda run -n ${condaEnv} pip install requests==2.32.3 -i https://pypi.tuna.t
 # 安装matplotlib
 RUN echo "install matplotlib==3.9.0"
 RUN conda run -n ${condaEnv} pip install matplotlib==3.9.0 -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 扰动攻击环境需要
+# 安装scikit-image
+RUN echo "install scikit-image"
+RUN conda run -n ${condaEnv} pip install scikit-image -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 安装wand
+RUN echo "install Wand"
+RUN apt-get update && \
+    apt-get install -y imagemagick libgl1-mesa-glx && \
+    rm -rf /var/lib/apt/lists/*
+RUN conda run -n ${condaEnv} pip install Wand -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 安装cv2
+RUN echo "install opencv-python"
+RUN conda run -n ${condaEnv} pip install opencv-python -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 激活 Conda 环境并安装依赖（使用 pip）
 # 先升级 pip 避免版本过旧导致安装问题

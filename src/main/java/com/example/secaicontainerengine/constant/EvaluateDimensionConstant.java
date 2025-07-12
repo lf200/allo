@@ -16,6 +16,13 @@ public class EvaluateDimensionConstant {
         map.put("fgsm", "robustness");
         map.put("pgd", "robustness");
 
+        map.put("mce", "robustness");
+        map.put("rmce", "robustness");
+        map.put("adverr", "robustness");
+        map.put("advacc", "robustness");
+        map.put("acac", "robustness");
+        map.put("actc", "robustness");
+
         //基础维度关联的指标
         map.put("accuracy", "basic");
         map.put("precision", "basic");
