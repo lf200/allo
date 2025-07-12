@@ -29,6 +29,8 @@ public class ModelEvaluation implements Serializable {
 
     private String status;
 
+    private String robustnessResult;
+
     private String basicResult;
 
     private String interpretabilityResult;

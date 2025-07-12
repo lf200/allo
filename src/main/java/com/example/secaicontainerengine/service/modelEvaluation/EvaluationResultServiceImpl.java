@@ -102,17 +102,17 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         // 2.4计算泛化性得分
         String generalization = resultMap.get("generalizationResult");
         if (isNotEmptyJson(generalization)) {
-            scoreMap.put("generalizationResult", computeGeneralizationScore(robustness));
+            scoreMap.put("generalizationResult", computeGeneralizationScore(generalization));
         }
         // 2.5计算公平性得分
         String fairness = resultMap.get("fairnessResult");
         if (isNotEmptyJson(fairness)) {
-            scoreMap.put("fairnessResult", computeFairnessScore(robustness));
+            scoreMap.put("fairnessResult", computeFairnessScore(fairness));
         }
         // 2.6计算安全性得分
         String security = resultMap.get("securityResult");
         if (isNotEmptyJson(security)) {
-            scoreMap.put("securityResult", computeSecurityScore(robustness));
+            scoreMap.put("securityResult", computeSecurityScore(security));
         }
         // 3.每个维度求平均计算出一个最终得分
         log.info("每个指标得分：{}", scoreMap);
@@ -396,7 +396,31 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
     }
 
     private double computeRobustnessScore(String result) {
-        return 0.0;
+
+        if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
+            return 0.0;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(result);
+            String[] keys = { "adverr", "advacc", "acac", "actc", "mce", "rmce" };
+            double total = 0.0;
+            int count = 0;
+            for (String key : keys) {
+                if (root.has(key)) {
+                    try {
+                        double value = Double.parseDouble(root.get(key).asText());
+                        total += value;
+                        count++;
+                    } catch (NumberFormatException e) {
+                        System.err.println("字段 " + key + " 解析失败: " + e.getMessage());
+                    }
+                }
+            }
+            return count > 0 ? total / count : 0.0;
+        } catch (Exception e) {
+            System.err.println("JSON 解析失败: " + e.getMessage());
+            return 0.0;
+        }
     }
 
     private double computeSecurityScore(String result) {
