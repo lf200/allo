@@ -168,7 +168,7 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
             values.put("evaluateDimension", evaluationType);
             values.put("logUrl", logUrl);
             values.put("resultUrl", resultUrl);
-            values.put("resultColumn", EvaluateDimensionConstant.getType(evaluationType)+"Result");
+            values.put("resultColumn", evaluationType+"Result");
 
 
             //生成填充好的yml文件字节流
