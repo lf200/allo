@@ -32,6 +32,8 @@ spec:
           value: ${containerName}
         - name: namespace
           value: default
+        - name: evaluationType
+          value: ${evaluationType}
         - name: evaluateDimension
           value: ${evaluateDimension}
         - name: resultUrl

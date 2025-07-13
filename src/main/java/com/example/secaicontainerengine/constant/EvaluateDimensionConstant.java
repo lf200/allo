@@ -16,8 +16,8 @@ public class EvaluateDimensionConstant {
         map.put("fgsm", "robustness");
         map.put("pgd", "robustness");
 
-        map.put("mce", "robustness");
-        map.put("rmce", "robustness");
+        map.put("mCE", "robustness");
+        map.put("RmCE", "robustness");
         map.put("adverr", "robustness");
         map.put("advacc", "robustness");
         map.put("acac", "robustness");

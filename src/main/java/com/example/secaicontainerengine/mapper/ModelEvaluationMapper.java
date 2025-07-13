@@ -24,6 +24,6 @@ public interface ModelEvaluationMapper extends BaseMapper<ModelEvaluation> {
     @Select("select ${evaluateDimension} from model_evaluation where modelId=#{modelId}")
     String getResult(String modelId, String evaluateDimension);
 
-    @Select("SELECT basicResult, interpretabilityResult FROM model_evaluation WHERE modelId = #{id}")
+    @Select("SELECT basicResult, interpretabilityResult, robustnessResult FROM model_evaluation WHERE modelId = #{id}")
     Map<String, String> selectResults(@Param("id") Long modelId);
 }

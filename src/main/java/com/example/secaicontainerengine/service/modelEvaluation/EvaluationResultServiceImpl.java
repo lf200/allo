@@ -402,7 +402,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         }
         try {
             JsonNode root = objectMapper.readTree(result);
-            String[] keys = { "adverr", "advacc", "acac", "actc", "mce", "rmce" };
+            String[] keys = { "adverr", "advacc", "acac", "actc", "mCE", "RmCE" };
             double total = 0.0;
             int count = 0;
             for (String key : keys) {
