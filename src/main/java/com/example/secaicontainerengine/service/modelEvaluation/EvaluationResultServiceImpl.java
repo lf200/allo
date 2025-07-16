@@ -27,6 +27,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -110,9 +111,9 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             scoreMap.put("fairnessResult", computeFairnessScore(fairness));
         }
         // 2.6计算安全性得分
-        String security = resultMap.get("securityResult");
-        if (isNotEmptyJson(security)) {
-            scoreMap.put("securityResult", computeSecurityScore(security));
+        String safety = resultMap.get("safetyResult");
+        if (isNotEmptyJson(safety)) {
+            scoreMap.put("safetyResult", computeSafetyScore(safety));
         }
         // 3.每个维度求平均计算出一个最终得分
         log.info("每个指标得分：{}", scoreMap);
@@ -423,8 +424,69 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         }
     }
 
-    private double computeSecurityScore(String result) {
-        return 0.0;
+    private double computeSafetyScore(String result) {
+        if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
+            return 0.0;
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(result);
+            double totalScore = 0.0;
+            int validMetricsCount = 0;
+
+            // 定义需要评估的安全指标及其权重
+            Map<String, Double> metrics = new LinkedHashMap<>();
+            metrics.put("auc", 1.0);              // AUC指标，默认权重1.0
+            metrics.put("tpr_at_fpr", 1.0);       // TPR@FPR指标，默认权重1.0
+            metrics.put("attack_average_precision", 1.0); // 攻击平均精度，默认权重1.0
+
+            // 遍历所有指标，计算加权分数
+            for (Map.Entry<String, Double> entry : metrics.entrySet()) {
+                String metricName = entry.getKey();
+                double weight = entry.getValue();
+
+                if (root.has(metricName)) {
+                    try {
+                        double rawValue = Double.parseDouble(root.get(metricName).asText());
+                        double normalizedValue = normalizeMetric(metricName, rawValue);
+                        totalScore += normalizedValue * weight;
+                        validMetricsCount++;
+                    } catch (NumberFormatException e) {
+                        System.err.println("字段 " + metricName + " 解析失败: " + e.getMessage());
+                    }
+                }
+            }
+
+            // 如果有有效指标，返回加权平均分；否则返回0
+            return validMetricsCount > 0 ? totalScore / validMetricsCount : 0.0;
+        } catch (Exception e) {
+            System.err.println("JSON 解析失败: " + e.getMessage());
+            return 0.0;
+        }
+    }
+
+    // 对不同指标进行归一化处理，将"值越大安全性越差"的指标转换为"值越大安全性越好"
+    private double normalizeMetric(String metricName, double rawValue) {
+        switch (metricName) {
+            case "auc":
+                // AUC通常在0.8左右，越大安全性越差，转换为1-rawValue
+                // 假设最坏情况AUC=1.0，最好情况AUC=0.5
+                return Math.max(0.0, 1.0 - rawValue) * 2; // 缩放至[0,1]
+
+            case "tpr_at_fpr":
+                // TPR@FPR通常在0.05左右，越大安全性越差，转换为1-rawValue/0.1
+                // 假设最坏情况TPR@FPR=0.1，最好情况TPR@FPR=0
+                return Math.max(0.0, 1.0 - (rawValue / 0.1)); // 缩放至[0,1]
+
+            case "attack_average_precision":
+                // 攻击平均精度通常在0.9左右，越大安全性越差，转换为1-rawValue
+                // 假设最坏情况attack_average_precision=1.0，最好情况=0
+                return Math.max(0.0, 1.0 - rawValue); // 缩放至[0,1]
+
+            default:
+                // 对于未知指标，默认返回原始值（通常不应该发生）
+                return rawValue;
+        }
     }
 
     private double computeFairnessScore(String result) {
@@ -432,7 +494,70 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
     }
 
     private double computeGeneralizationScore(String result) {
-        return 0.0;
+        if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
+            return 0.0;
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(result);
+            double totalScore = 0.0;
+            int validMetricsCount = 0;
+
+            // 定义需要评估的泛化性指标及其权重
+            Map<String, Double> metrics = new LinkedHashMap<>();
+            metrics.put("msp", 1.0);              // 平均MSP，默认权重1.0
+            metrics.put("entropy", 1.0);          // 平均预测熵，默认权重1.0
+            metrics.put("rademacher", 1.0);       // Rademacher复杂度，默认权重1.0
+
+            // 遍历所有指标，计算加权分数
+            for (Map.Entry<String, Double> entry : metrics.entrySet()) {
+                String metricName = entry.getKey();
+                double weight = entry.getValue();
+
+                if (root.has(metricName)) {
+                    try {
+                        double rawValue = Double.parseDouble(root.get(metricName).asText());
+                        double normalizedValue = normalizeGeneralizationMetric(metricName, rawValue);
+                        totalScore += normalizedValue * weight;
+                        validMetricsCount++;
+                    } catch (NumberFormatException e) {
+                        System.err.println("字段 " + metricName + " 解析失败: " + e.getMessage());
+                    }
+                }
+            }
+
+            // 如果有有效指标，返回加权平均分；否则返回0
+            return validMetricsCount > 0 ? totalScore / validMetricsCount : 0.0;
+        } catch (Exception e) {
+            System.err.println("JSON 解析失败: " + e.getMessage());
+            return 0.0;
+        }
+    }
+
+    // 对不同指标进行归一化处理，将原始值映射到0-1区间（值越大泛化性越好）
+    private double normalizeGeneralizationMetric(String metricName, double rawValue) {
+        switch (metricName) {
+            case "msp":
+                // MSP在0.5(欠拟合)到0.9(过拟合)之间，转换为0-1区间
+                // 公式: (raw - 0.5) / (0.9 - 0.5)
+                return Math.min(Math.max((rawValue - 0.5) / 0.4, 0.0), 1.0);
+
+            case "entropy":
+                // 熵在0.5(过拟合)到2.0(欠拟合)之间，峰值约1.0，使用高斯函数归一化
+                // 公式: exp(-0.5 * ((x-1.0)/0.5)^2)
+                double peak = 1.0;
+                double sigma = 0.5;
+                return Math.exp(-0.5 * Math.pow((rawValue - peak) / sigma, 2));
+
+            case "rademacher":
+                // Rademacher复杂度在-0.1(好)到0.1(差)之间，转换为0-1区间
+                // 公式: 1.0 - (raw + 0.1) / 0.2
+                return Math.max(1.0 - (rawValue + 0.1) / 0.2, 0.0);
+
+            default:
+                // 未知指标，返回0
+                return 0.0;
+        }
     }
 
     public static double calculateFinalScore(Map<String, Double> scoreMap) {

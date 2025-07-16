@@ -487,7 +487,7 @@ public class FileUtils {
         Map<String, Object> evaluation = new LinkedHashMap<>();
 
         // 初始化每个维度为空 Map
-        List<String> dimensions = Arrays.asList("basic", "robustness", "interpretability", "security", "generalization", "fairness");
+        List<String> dimensions = Arrays.asList("basic", "robustness", "interpretability", "safety", "generalization", "fairness");
         for (String dim : dimensions) {
             evaluation.put(dim, new LinkedHashMap<>());
         }
