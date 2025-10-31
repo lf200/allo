@@ -159,7 +159,7 @@ public class FileUtils {
 
     public static ModelMessage processFilesInRemoteDirectory(ChannelSftp sftpChannel, ModelMessage modelMessage, String remotePath) throws SftpException {
         Vector<ChannelSftp.LsEntry> entries = sftpChannel.ls(remotePath);
-
+        log.info("开始处理远程路径: {}", remotePath);
         for (ChannelSftp.LsEntry entry : entries) {
             String fileName = entry.getFilename().toLowerCase();
             String absolutePath = remotePath + "/" + entry.getFilename();

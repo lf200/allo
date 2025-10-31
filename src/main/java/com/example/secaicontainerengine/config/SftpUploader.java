@@ -70,19 +70,38 @@ public class SftpUploader {
 
             // 确保远程目录存在
             createRemoteDirectory(sftpChannel, remoteDir);
+            log.info("远程目录存在");
 
             //上传模型数据
             uploadDirectoryRecursive(sftpChannel, new File(localDir), remoteDir);
 
-//            log.info("上传到nfs服务器成功");
+            log.info("上传到nfs服务器成功");
 
             // 更新数据库
+            log.info("准备更新数据库，模型id为: {}", modelId);
             ModelMessage modelMessage = modelMessageService.getById(modelId);
 
             // 获取到上传文件的路径
             // 获取远程目录中的文件和文件夹
+            log.info("准备列出远程目录内容: {}", remoteDir);
+            if (!sftpChannel.isConnected()) {
+                log.error("SFTP连接已断开，无法执行ls操作");
+            }
             Vector<ChannelSftp.LsEntry> files = sftpChannel.ls(remoteDir);
-            String remoteModelPath = remoteDir + File.separator + files.get(0).getFilename();
+            log.info("远程目录 {} 下的文件数量: {}", remoteDir, files.size());
+            if (files.size() == 0) {
+                log.error("远程目录为空，无法获取第一个文件");
+                throw new RuntimeException("远程目录为空");
+            }
+            String firstFileName = files.get(0).getFilename();
+            log.info("远程目录第一个文件/文件夹名称: {}", firstFileName);
+            if (firstFileName.equals(".") || firstFileName.equals("..")) {
+                // 跳过 . 和 ..，取第一个实际文件
+                firstFileName = files.get(1).getFilename();
+                log.info("跳过 . 或 ..，使用第二个文件: {}", firstFileName);
+            }
+            String remoteModelPath = remoteDir + "/" + files.get(0).getFilename();
+            log.info("远程模型路径:"+ remoteModelPath );
             modelMessage.setAllDataAddress(remoteModelPath);
             processFilesInRemoteDirectory(sftpChannel, modelMessage, remoteModelPath);
             modelMessage.setUpdateTime(LocalDateTime.now());
@@ -96,7 +115,7 @@ public class SftpUploader {
             uploadStatusWebSocketHandler.sendUploadStatus(String.valueOf(userId), "上传完成!" + String.valueOf(modelMessage.getId()));
 
         }catch (Exception e){
-            log.error("上传失败，错误信息：{}", e.getMessage());
+            log.error("上传失败，错误信息：{}", e.getMessage(), e);
             uploadStatusWebSocketHandler.sendUploadStatus(String.valueOf(userId), "上传失败");
         } finally {
             sftpChannel.disconnect();
