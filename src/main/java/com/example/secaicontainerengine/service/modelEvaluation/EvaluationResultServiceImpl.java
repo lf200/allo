@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.example.secaicontainerengine.mapper.EvaluationResultMapper;
 import com.example.secaicontainerengine.mapper.ModelEvaluationMapper;
 import com.example.secaicontainerengine.mapper.ModelMessageMapper;
+import com.example.secaicontainerengine.pojo.dto.model.ModelConfig;
 import com.example.secaicontainerengine.pojo.dto.model.ModelScore;
 import com.example.secaicontainerengine.pojo.dto.result.EvaluationStatus;
 import com.example.secaicontainerengine.pojo.dto.result.PodResult;
@@ -27,6 +28,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,12 +85,32 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
         // 1.查询出每个评测维度的测试结果
         Map<String, String> resultMap = modelEvaluationMapper.selectResults(modelId);
+
+        // 1.1 获取模型任务类型（从 ModelMessage.modelConfig 中解析）
+        // 目的：根据任务类型（classification 或 detection）选择不同的指标计算方式
+        ModelMessage modelMessage = modelMessageMapper.selectById(modelId);
+        String task = "classification"; // 默认任务类型为分类
+        if (modelMessage != null && modelMessage.getModelConfig() != null) {
+            try {
+                // 解析 modelConfig JSON 字符串，获取 ModelConfig 对象
+                ModelConfig modelConfig = JSONUtil.toBean(modelMessage.getModelConfig(), ModelConfig.class);
+                if (modelConfig != null && modelConfig.getTask() != null) {
+                    task = modelConfig.getTask(); // 获取任务类型：可能是 "classification" 或 "detection"
+                    log.debug("模型任务类型: {}", task);
+                }
+            } catch (Exception e) {
+                // 如果解析失败，使用默认的分类任务类型，保证向后兼容
+                log.warn("解析 modelConfig 失败，使用默认任务类型: classification", e);
+            }
+        }
+
         // 2.计算出每个维度的测试得分
         Map<String, Double> scoreMap = new HashMap<>();
         // 2.1计算基础得分
         String basic = resultMap.get("basicResult");
         if (isNotEmptyJson(basic)) {
-            scoreMap.put("basicResult", computeBasicScore(basic));
+            // 传递 task 参数给 computeBasicScore 方法
+            scoreMap.put("basicResult", computeBasicScore(basic, task));
         }
         // 2.2计算可解释性得分
         String interpretability = resultMap.get("interpretabilityResult");
@@ -132,10 +154,12 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         modelEvaluation.setUpdateTime(LocalDateTime.now());
         modelEvaluationMapper.updateById(modelEvaluation);
 
-        ModelMessage modelMessage = modelMessageMapper.selectById(modelId);
-        modelMessage.setStatus(4);
-        modelMessage.setUpdateTime(LocalDateTime.now());
-        modelMessageMapper.updateById(modelMessage);
+        // 更新模型状态（复用前面已经查询的 ModelMessage，避免重复查询）
+        if (modelMessage != null) {
+            modelMessage.setStatus(4);
+            modelMessage.setUpdateTime(LocalDateTime.now());
+            modelMessageMapper.updateById(modelMessage);
+        }
     }
 
     @Override
@@ -147,7 +171,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
     @Override
     public Map<String, BigDecimal> calculateScoresByType(List<EvaluationResult> resultList,
-                                                             Map<Long, String> evaluateMethodTypeMap) {
+                                                         Map<Long, String> evaluateMethodTypeMap) {
         // 用平均分代替
 
         // 按分类分组，累加得分（BigDecimal）和记录数
@@ -365,29 +389,133 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         }
     }
 
-    private double computeBasicScore(String result) {
+    /**
+     * 计算基础评测得分
+     *
+     * @param result basicResult JSON 字符串，从数据库读取
+     * @param task 任务类型："classification"（分类）或 "detection"（目标检测）
+     * @return 计算得到的得分（0.0 ~ 1.0）
+     */
+    private double computeBasicScore(String result, String task) {
+        // 1. 检查 result 是否为空
         if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
             return 0.0;
         }
         try {
+            // 2. 第一次解析：解析整个 basicResult JSON 字符串
             JsonNode root = objectMapper.readTree(result);
-            String[] keys = { "accuracy", "precision", "recall", "f1score" };
+
+            // 3. 根据任务类型选择不同的指标数组
+            String[] keys;
+            if ("detection".equals(task)) {
+                // 目标检测任务：5个指标
+                // map: 平均精度（mean Average Precision）
+                // map_50: IoU阈值0.5时的平均精度
+                // precision: 精确率
+                // recall: 召回率
+                // per_class_ap: 每个类别的平均精度（字典格式，需要特殊处理）
+                keys = new String[]{"map", "map_50", "precision", "recall", "per_class_ap"};
+                log.debug("使用目标检测指标计算basic得分");
+            } else {
+                // 分类任务（默认）：4个指标
+                // accuracy: 准确率
+                // precision: 精确率
+                // recall: 召回率
+                // f1score: F1分数
+                keys = new String[]{"accuracy", "precision", "recall", "f1score"};
+                log.debug("使用分类指标计算basic得分");
+            }
+
+            // 4. 遍历指标数组，提取指标值并累加
             double total = 0.0;
             int count = 0;
             for (String key : keys) {
                 if (root.has(key)) {
                     try {
-                        double value = Double.parseDouble(root.get(key).asText());
+                        JsonNode valueNode = root.get(key);
+                        double value;
+
+                        // 5. 特殊处理 per_class_ap 字段（仅目标检测任务）
+                        if ("per_class_ap".equals(key)) {
+                            // per_class_ap 在数据库中的格式：
+                            // 内部计算阶段：字典对象 {"0": 0.73, "1": 0.65}
+                            // 回传到后端时：被 json.dumps() 序列化成 JSON 字符串
+                            // 数据库存储：per_class_ap 字段的值是 JSON 字符串 "{\"0\": 0.73, \"1\": 0.65}"
+                            //
+                            // 所以需要二次解析：
+                            // 第一次解析（上面）：得到 per_class_ap 字段的值是字符串节点
+                            // 第二次解析（这里）：把这个字符串解析成 JSON 对象，然后遍历所有值计算平均值
+
+                            if (valueNode.isTextual()) {
+                                // 获取 JSON 字符串内容
+                                String perClassApJson = valueNode.asText();
+                                try {
+                                    // 二次解析：把 JSON 字符串解析成 JSON 对象
+                                    JsonNode perClassApObject = objectMapper.readTree(perClassApJson);
+
+                                    // 遍历对象的所有字段值，计算平均值
+                                    // 键是类别ID（如 "0", "1"），值是浮点数（如 0.73, 0.65）
+                                    double sum = 0.0;
+                                    int objectCount = 0;
+                                    Iterator<Map.Entry<String, JsonNode>> fields = perClassApObject.fields();
+                                    while (fields.hasNext()) {
+                                        Map.Entry<String, JsonNode> entry = fields.next();
+                                        JsonNode fieldValue = entry.getValue();
+                                        // 只累加数值类型的值
+                                        if (fieldValue.isNumber()) {
+                                            sum += fieldValue.asDouble();
+                                            objectCount++;
+                                        }
+                                    }
+                                    // 计算平均值
+                                    if (objectCount > 0) {
+                                        value = sum / objectCount;
+                                    } else {
+                                        // 如果没有有效值，跳过该指标
+                                        log.warn("per_class_ap 对象为空或没有有效数值，跳过该指标");
+                                        continue;
+                                    }
+                                } catch (Exception e) {
+                                    // 二次解析失败，跳过该指标
+                                    log.warn("per_class_ap 二次解析失败，跳过该指标: {}", e.getMessage());
+                                    continue;
+                                }
+                            } else {
+                                // 如果不是字符串类型，说明格式不对，跳过该指标
+                                log.warn("per_class_ap 不是字符串类型，跳过该指标");
+                                continue;
+                            }
+                        } else {
+                            // 6. 处理普通指标（map, map_50, precision, recall, accuracy, f1score）
+                            // 这些指标的值可能是数字或字符串（评测系统可能转成字符串发送）
+                            // 需要兼容两种格式
+                            if (valueNode.isNumber()) {
+                                // 如果已经是数字类型，直接获取
+                                value = valueNode.asDouble();
+                            } else {
+                                // 如果是字符串类型，先转成字符串再解析为数字
+                                value = Double.parseDouble(valueNode.asText());
+                            }
+                        }
+
+                        // 累加指标值
                         total += value;
                         count++;
                     } catch (NumberFormatException e) {
-                        System.err.println("字段 " + key + " 解析失败: " + e.getMessage());
+                        // 数字解析失败，记录警告但继续处理其他指标
+                        log.warn("字段 {} 解析失败: {}", key, e.getMessage());
+                    } catch (Exception e) {
+                        // 其他异常，记录警告但继续处理其他指标
+                        log.warn("字段 {} 处理失败: {}", key, e.getMessage());
                     }
                 }
             }
+
+            // 7. 计算所有有效指标的平均值
             return count > 0 ? total / count : 0.0;
         } catch (Exception e) {
-            System.err.println("JSON 解析失败: " + e.getMessage());
+            // JSON 解析失败，返回 0.0
+            log.error("JSON 解析失败: {}", e.getMessage(), e);
             return 0.0;
         }
     }
@@ -498,52 +626,52 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
             return 0.0;
         }
-        
+
         try {
             JsonNode root = objectMapper.readTree(result);
             double totalScore = 0.0;
             int metricCount = 0;
-            
+
             // 计算每个指标的公平性分数并累加
             if (root.has("spd")) {
                 double spd = root.get("spd").asDouble();
                 totalScore += calculateSPDScore(spd);
                 metricCount++;
             }
-            
+
             if (root.has("dir")) {
                 double dir = root.get("dir").asDouble();
                 totalScore += calculateDIRScore(dir);
                 metricCount++;
             }
-            
+
             if (root.has("eod")) {
                 double eod = root.get("eod").asDouble();
                 totalScore += calculateEODScore(eod);
                 metricCount++;
             }
-            
+
             if (root.has("aod")) {
                 double aod = root.get("aod").asDouble();
                 totalScore += calculateAODScore(aod);
                 metricCount++;
             }
-            
+
             if (root.has("consistency")) {
                 double consistency = root.get("consistency").asDouble();
                 totalScore += consistency; // 一致性已经是0-1之间的分数
                 metricCount++;
             }
-            
+
             // 如果没有有效指标，返回0
             return metricCount > 0 ? totalScore / metricCount : 0.0;
-            
+
         } catch (Exception e) {
             System.err.println("JSON解析失败: " + e.getMessage());
             return 0.0;
         }
     }
-    
+
     /**
      * 计算统计 parity difference (SPD) 的公平性分数
      * SPD越接近0越公平
@@ -554,7 +682,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         // 假设SPD在[-0.5, 0.5]范围内，超过此范围的分数为0
         return Math.max(0.0, 1.0 - (absSPD * 2));
     }
-    
+
     /**
      * 计算 disparate impact ratio (DIR) 的公平性分数
      * DIR越接近1越公平
@@ -564,7 +692,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         if (dir <= 0) {
             return 0.0;
         }
-        
+
         double score;
         if (dir >= 1) {
             // DIR >=1 的情况
@@ -573,11 +701,11 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             // DIR <1 的情况
             score = dir;
         }
-        
+
         // 将分数限制在0-1范围内
         return Math.min(1.0, Math.max(0.0, score));
     }
-    
+
     /**
      * 计算 equal opportunity difference (EOD) 的公平性分数
      * EOD越接近0越公平
@@ -588,7 +716,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         // 假设EOD在[-0.5, 0.5]范围内，超过此范围的分数为0
         return Math.max(0.0, 1.0 - (absEOD * 2));
     }
-    
+
     /**
      * 计算 average odds difference (AOD) 的公平性分数
      * AOD越接近0越公平

@@ -12,3 +12,10 @@
 * 相关配置位于spring.datasource选项下
 ## 2.3 检查配置文件`localhost`配置项
 需要把`logUrl`和`resultUrl`修改为自己启动的服务的ip
+
+## 评测代码的地址是通过 NFS 挂载实现的，修改评测实际使用的脚本路径：
+    在FileUtils.java的generateEvaluateRunSh方法中硬编码：
+    301行："python3 /app/systemData/evaluation_code/art/eva_start.py &\n" +
+    在 Kubernetes 的 Pod 配置中，通过 volumeMounts 将 NFS 上的 systemData 目录挂载到容器内的 /app/systemData 
+    在 attack_pod_gpu.yml 模板文件中定义了 volumeMounts 和 volumes
+    把art替换为secai-common: 在FileUtils.java中替换

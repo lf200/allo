@@ -23,4 +23,16 @@ public class ModelConfig {
     // 模型任务类型
     private String task;
 
+    // 类别数目
+    private Integer nbClasses;
+
+    // 输入数据形状 - 图像通道数
+    private Integer inputChannels;
+
+    // 输入数据形状 - 图像高度
+    private Integer inputHeight;
+
+    // 输入数据形状 - 图像宽度
+    private Integer inputWidth;
+
 }

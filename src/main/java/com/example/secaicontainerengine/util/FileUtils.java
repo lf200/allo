@@ -245,8 +245,8 @@ public class FileUtils {
                 "set -e\n\n" +
                 "# 定义临时文件路径（使用固定路径避免权限问题）\n" +
                 "TMP_MEM_FILE=\"/tmp/max_mem.tmp\"\n" +
-                "TMP_GPU_FILE=\"/tmp/max_gpu.tmp\"\n\n" +
-                "# 初始化临时文件（避免残留数据）\n" +
+//                "TMP_GPU_FILE=\"/tmp/max_gpu.tmp\"\n\n" +
+//                "# 初始化临时文件（避免残留数据）\n" +
                 "echo 0 > \"$TMP_MEM_FILE\"\n" +
                 "echo 0 > \"$TMP_GPU_FILE\"\n\n" +
                 "# 定义监控函数（后台运行，数据写入临时文件）\n" +
@@ -298,7 +298,7 @@ public class FileUtils {
                 "source activate " + condaEnv + "\n\n" +
                 "echo \"Running 模型评测...\"\n" +
                 "export CRYPTOGRAPHY_OPENSSL_NO_LEGACY=1\n" +
-                "python3 /app/systemData/evaluation_code/art/eva_start.py &\n" +
+                "python3 /app/systemData/evaluation_code/secai-common/eva_start.py &\n" +
                 "python_pid=$!  # 获取Python进程PID\n\n" +
                 "# 等待Python进程完成（精准等待，避免阻塞）\n" +
                 "wait $python_pid  # 仅等待Python进程\n" +
@@ -472,8 +472,29 @@ public class FileUtils {
         modelEstimator.put("task", evaluationConfig.getTask());
 
         Map<String, Object> estimatorParams = new HashMap<>();
-        estimatorParams.put("input_shape", Arrays.asList(3, 32, 32));
-        estimatorParams.put("nb_classes", 10);
+//        estimatorParams.put("input_shape", Arrays.asList(3, 32, 32));
+//        estimatorParams.put("nb_classes", 10);
+        // 输入数据形状：优先使用传入的参数，如果为空则使用默认值 [3, 32, 32]
+        List<Integer> inputShape;
+        if (evaluationConfig.getInputChannels() != null
+                && evaluationConfig.getInputHeight() != null
+                && evaluationConfig.getInputWidth() != null) {
+            inputShape = Arrays.asList(
+                    evaluationConfig.getInputChannels(),
+                    evaluationConfig.getInputHeight(),
+                    evaluationConfig.getInputWidth()
+            );
+        } else {
+            // 向后兼容：如果参数为空，使用默认值
+            inputShape = Arrays.asList(3, 32, 32);
+        }
+        estimatorParams.put("input_shape", inputShape);
+
+        // 类别数目：优先使用传入的参数，如果为空则使用默认值 10
+        Integer nbClasses = evaluationConfig.getNbClasses() != null
+                ? evaluationConfig.getNbClasses()
+                : 10; // 向后兼容：默认值
+        estimatorParams.put("nb_classes", nbClasses);
         estimatorParams.put("clip_values", Arrays.asList(0, 1));
         estimatorParams.put("device", "cuda");
         estimatorParams.put("device_type", "gpu");

@@ -26,5 +26,16 @@ public class EvaluationConfig {
     // 模型评测方法
     private List<BusinessConfig.EvaluationDimensionConfig> evaluateMethods;
 
+    // 类别数目
+    private Integer nbClasses;
+
+    // 输入数据形状 - 图像通道数
+    private Integer inputChannels;
+
+    // 输入数据形状 - 图像高度
+    private Integer inputHeight;
+
+    // 输入数据形状 - 图像宽度
+    private Integer inputWidth;
 
 }
