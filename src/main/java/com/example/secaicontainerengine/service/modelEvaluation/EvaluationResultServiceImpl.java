@@ -27,14 +27,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static com.example.secaicontainerengine.util.PodUtil.calculateScoreFromResult;
 
@@ -404,123 +401,69 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
             int totalFields = 0;
 
-            // 处理 adversarial 数组：展开每个攻击的所有指标
+            // 处理 adversarial 数组：展开每个攻击的指标
             if (rootNode.has("adversarial") && rootNode.get("adversarial").isArray()) {
                 JsonNode adversarialArray = rootNode.get("adversarial");
-
-                // 定义不需要存储的配置参数字段（排除这些，其余全部存储）
-                Set<String> excludedFields = new HashSet<>(Arrays.asList(
-                    "attack", "eps", "attack_name"
-                ));
-
                 for (JsonNode attack : adversarialArray) {
-                    // 构造攻击名称后缀：支持 attack + eps 或 attack_name 格式
-                    String attackName;
-                    if (attack.has("attack") && attack.has("eps")) {
-                        // 格式: {"attack": "fgsm", "eps": 0.001}
-                        String attackType = attack.get("attack").asText();
-                        String eps = attack.get("eps").asText();
-                        attackName = attackType + "_eps_" + eps;
-                    } else if (attack.has("attack_name")) {
-                        // 格式: {"attack_name": "fgsm_eps_0.001"}
-                        attackName = attack.get("attack_name").asText();
-                    } else {
-                        log.warn("adversarial 攻击缺少 attack/attack_name 字段，跳过");
-                        continue;
-                    }
+                    // 获取攻击名称作为后缀
+                    String attackName = attack.has("attack_name") ? attack.get("attack_name").asText() : "unknown";
 
-                    // 检查指标是在 metrics 对象里还是直接在对象下
-                    JsonNode metricsNode = attack.has("metrics") ? attack.get("metrics") : attack;
-
-                    // 遍历所有字段，存储所有非配置参数的指标
-                    Iterator<Map.Entry<String, JsonNode>> fields = metricsNode.fields();
+                    // 展开每个指标
+                    Iterator<Map.Entry<String, JsonNode>> fields = attack.fields();
                     while (fields.hasNext()) {
                         Map.Entry<String, JsonNode> field = fields.next();
-                        String metricName = field.getKey();
+                        String fieldName = field.getKey();
 
-                        // 跳过配置参数字段
-                        if (excludedFields.contains(metricName)) {
+                        // 跳过 attack_name 本身
+                        if ("attack_name".equals(fieldName)) {
                             continue;
                         }
 
-                        JsonNode valueNode = field.getValue();
+                        // 构造键名：指标名_攻击名
+                        // 例如：map_drop_rate_fgsm_eps_0.001
+                        String key = fieldName + "_" + attackName;
+                        String value = field.getValue().asText();
 
-                        // 处理嵌套对象（如 per_class_clean_map, per_class_adversarial_map）
-                        if (valueNode.isObject()) {
-                            // 将对象序列化为JSON字符串存储
-                            String key = metricName + "_" + attackName;
-                            String value = objectMapper.writeValueAsString(valueNode);
-                            modelEvaluationMapper.upsertJsonField(modelId, resultColumn, key, value);
-                            totalFields++;
-                        } else {
-                            // 处理普通标量值
-                            String key = metricName + "_" + attackName;
-                            String value = valueNode.asText();
-                            modelEvaluationMapper.upsertJsonField(modelId, resultColumn, key, value);
-                            totalFields++;
-                        }
+                        modelEvaluationMapper.upsertJsonField(modelId, resultColumn, key, value);
+                        totalFields++;
                     }
                 }
                 log.debug("已展开存储 {} 个 adversarial 指标", totalFields);
             }
 
-            // 处理 corruption/corruptions 数组：展开每个腐败测试的所有指标
-            JsonNode corruptionArray = null;
-            if (rootNode.has("corruptions") && rootNode.get("corruptions").isArray()) {
-                corruptionArray = rootNode.get("corruptions");
-            } else if (rootNode.has("corruption") && rootNode.get("corruption").isArray()) {
-                corruptionArray = rootNode.get("corruption");
-            }
-
-            if (corruptionArray != null) {
+            // 处理 corruption 数组：展开每个腐败测试的指标
+            if (rootNode.has("corruption") && rootNode.get("corruption").isArray()) {
+                JsonNode corruptionArray = rootNode.get("corruption");
                 int corruptionFields = 0;
-
-                // 定义不需要存储的配置参数字段（排除这些，其余全部存储）
-                Set<String> excludedFields = new HashSet<>(Arrays.asList(
-                    "corruption_name", "corruption_key", "severity"
-                ));
 
                 for (JsonNode corruption : corruptionArray) {
                     // 获取腐败类型和严重程度作为后缀
-                    if (!corruption.has("corruption_name")) {
-                        log.warn("corruption 测试缺少 corruption_name 字段，跳过");
-                        continue;
-                    }
-                    String corruptionName = corruption.get("corruption_name").asText();
+                    String corruptionName = corruption.has("corruption_name") ?
+                        corruption.get("corruption_name").asText() : "unknown";
                     String severity = corruption.has("severity") ?
                         corruption.get("severity").asText() : "";
                     String suffix = corruptionName + (severity.isEmpty() ? "" : "_" + severity);
 
-                    // 检查指标是在 metrics 对象里还是直接在对象下
-                    JsonNode metricsNode = corruption.has("metrics") ? corruption.get("metrics") : corruption;
-
-                    // 遍历所有字段，存储所有非配置参数的指标
-                    Iterator<Map.Entry<String, JsonNode>> fields = metricsNode.fields();
+                    // 展开每个指标
+                    Iterator<Map.Entry<String, JsonNode>> fields = corruption.fields();
                     while (fields.hasNext()) {
                         Map.Entry<String, JsonNode> field = fields.next();
-                        String metricName = field.getKey();
+                        String fieldName = field.getKey();
 
-                        // 跳过配置参数字段
-                        if (excludedFields.contains(metricName)) {
+                        // 跳过用于构造后缀的字段
+                        if ("corruption_name".equals(fieldName) ||
+                            "corruption_key".equals(fieldName) ||
+                            "severity".equals(fieldName)) {
                             continue;
                         }
 
-                        JsonNode valueNode = field.getValue();
+                        // 构造键名：指标名_腐败类型_严重程度
+                        // 例如：performance_drop_rate_gaussian_noise_1
+                        String key = fieldName + "_" + suffix;
+                        String value = field.getValue().asText();
 
-                        // 处理嵌套对象
-                        if (valueNode.isObject()) {
-                            // 将对象序列化为JSON字符串存储
-                            String key = metricName + "_" + suffix;
-                            String value = objectMapper.writeValueAsString(valueNode);
-                            modelEvaluationMapper.upsertJsonField(modelId, resultColumn, key, value);
-                            corruptionFields++;
-                        } else {
-                            // 处理普通标量值
-                            String key = metricName + "_" + suffix;
-                            String value = valueNode.asText();
-                            modelEvaluationMapper.upsertJsonField(modelId, resultColumn, key, value);
-                            corruptionFields++;
-                        }
+                        modelEvaluationMapper.upsertJsonField(modelId, resultColumn, key, value);
+                        corruptionFields++;
                     }
                 }
                 log.debug("已展开存储 {} 个 corruption 指标", corruptionFields);
