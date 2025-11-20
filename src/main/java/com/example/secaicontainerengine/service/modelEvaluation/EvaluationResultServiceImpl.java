@@ -370,8 +370,8 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
     @Override
     @Transactional
     public void updateResult(Long modelId, Map<String, String> result, String resultColumn) {
-        // 特殊处理 robustness 维度：展开存储
-        if ("robustnessResult".equals(resultColumn) && result.containsKey("robustness")) {
+        // 特殊处理 robustness 维度：只要包含 robustness 键就展开存储
+        if (result.containsKey("robustness")) {
             parseAndStoreRobustness(modelId, resultColumn, result.get("robustness"));
             return;
         }
@@ -384,10 +384,10 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
     /**
      * 解析并存储 robustness 的特殊JSON格式
-     * 将每个指标展开为独立的键值对，与其他维度格式保持一致
+     * 保留原始 JSON 结构（adversarial、corruption 等键），只去掉转义字符
      *
-     * 输入格式: "{\"adversarial\": [{...}, {...}], \"corruption\": [{...}, {...}]}"
-     * 存储后格式: {"map_drop_rate_fgsm_0.001": "0.062", "miss_rate_fgsm_0.001": "0.250", ...}
+     * 输入格式: "{\"adversarial\": [{...}], \"corruption\": [{...}]}"
+     * 存储后格式: {"robustness": {"adversarial": [...], "corruption": [...]}}
      *
      * @param modelId 模型ID
      * @param resultColumn 结果列名（robustnessResult）
@@ -395,82 +395,14 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
      */
     private void parseAndStoreRobustness(Long modelId, String resultColumn, String robustnessJson) {
         try {
-            // 解析内层JSON字符串
+            // 解析 JSON，验证格式是否正确
             JsonNode rootNode = objectMapper.readTree(robustnessJson);
-            log.debug("开始解析并展开 robustness JSON");
+            log.debug("开始存储 robustness JSON（保留原始结构）");
 
-            int totalFields = 0;
+            // 直接存储整个 robustness JSON（保留 adversarial、corruption 等键）
+            modelEvaluationMapper.upsertJsonField(modelId, resultColumn, "robustness", robustnessJson);
 
-            // 处理 adversarial 数组：展开每个攻击的指标
-            if (rootNode.has("adversarial") && rootNode.get("adversarial").isArray()) {
-                JsonNode adversarialArray = rootNode.get("adversarial");
-                for (JsonNode attack : adversarialArray) {
-                    // 获取攻击名称作为后缀
-                    String attackName = attack.has("attack_name") ? attack.get("attack_name").asText() : "unknown";
-
-                    // 展开每个指标
-                    Iterator<Map.Entry<String, JsonNode>> fields = attack.fields();
-                    while (fields.hasNext()) {
-                        Map.Entry<String, JsonNode> field = fields.next();
-                        String fieldName = field.getKey();
-
-                        // 跳过 attack_name 本身
-                        if ("attack_name".equals(fieldName)) {
-                            continue;
-                        }
-
-                        // 构造键名：指标名_攻击名
-                        // 例如：map_drop_rate_fgsm_eps_0.001
-                        String key = fieldName + "_" + attackName;
-                        String value = field.getValue().asText();
-
-                        modelEvaluationMapper.upsertJsonField(modelId, resultColumn, key, value);
-                        totalFields++;
-                    }
-                }
-                log.debug("已展开存储 {} 个 adversarial 指标", totalFields);
-            }
-
-            // 处理 corruption 数组：展开每个腐败测试的指标
-            if (rootNode.has("corruption") && rootNode.get("corruption").isArray()) {
-                JsonNode corruptionArray = rootNode.get("corruption");
-                int corruptionFields = 0;
-
-                for (JsonNode corruption : corruptionArray) {
-                    // 获取腐败类型和严重程度作为后缀
-                    String corruptionName = corruption.has("corruption_name") ?
-                        corruption.get("corruption_name").asText() : "unknown";
-                    String severity = corruption.has("severity") ?
-                        corruption.get("severity").asText() : "";
-                    String suffix = corruptionName + (severity.isEmpty() ? "" : "_" + severity);
-
-                    // 展开每个指标
-                    Iterator<Map.Entry<String, JsonNode>> fields = corruption.fields();
-                    while (fields.hasNext()) {
-                        Map.Entry<String, JsonNode> field = fields.next();
-                        String fieldName = field.getKey();
-
-                        // 跳过用于构造后缀的字段
-                        if ("corruption_name".equals(fieldName) ||
-                            "corruption_key".equals(fieldName) ||
-                            "severity".equals(fieldName)) {
-                            continue;
-                        }
-
-                        // 构造键名：指标名_腐败类型_严重程度
-                        // 例如：performance_drop_rate_gaussian_noise_1
-                        String key = fieldName + "_" + suffix;
-                        String value = field.getValue().asText();
-
-                        modelEvaluationMapper.upsertJsonField(modelId, resultColumn, key, value);
-                        corruptionFields++;
-                    }
-                }
-                log.debug("已展开存储 {} 个 corruption 指标", corruptionFields);
-                totalFields += corruptionFields;
-            }
-
-            log.info("robustness JSON 解析并展开存储成功，共 {} 个指标字段", totalFields);
+            log.info("robustness JSON 存储成功（保留原始结构）");
 
         } catch (Exception e) {
             log.error("解析并存储 robustness JSON 失败: {}", e.getMessage(), e);
