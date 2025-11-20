@@ -489,28 +489,11 @@ public class FileUtils {
         }
     }
 
-    private static final List<String> EVALUATION_DIMENSIONS = Arrays.asList(
-            "basic", "robustness", "interpretability", "safety", "generalization", "fairness"
-    );
-
-    private static final Map<String, List<String>> DEFAULT_DIMENSION_METHODS = new LinkedHashMap<>();
-
-    static {
-        DEFAULT_DIMENSION_METHODS.put("basic", Collections.singletonList("performance_testing"));
-        DEFAULT_DIMENSION_METHODS.put("robustness", Arrays.asList("adversarial", "corruption"));
-        DEFAULT_DIMENSION_METHODS.put("interpretability", Collections.singletonList("interpretability_testing"));
-        DEFAULT_DIMENSION_METHODS.put("safety", Collections.singletonList("membership_inference"));
-        DEFAULT_DIMENSION_METHODS.put("generalization", Collections.singletonList("generalization_testing"));
-        DEFAULT_DIMENSION_METHODS.put("fairness", Arrays.asList("group_fairness", "individual_fairness"));
-    }
-
     private static Map<String, Object> buildModelSection(EvaluationConfig evaluationConfig) {
         Map<String, Object> instantiation = new LinkedHashMap<>();
-        instantiation.put("model_path",
-                buildPath("/app/userData/modelData/model/", evaluationConfig.getModelNetFileName()));
-        instantiation.put("weight_path",
-                buildPath("/app/userData/modelData/", evaluationConfig.getWeightFileName()));
-        instantiation.put("model_name", evaluationConfig.getModelNetName());
+        instantiation.put("model_path", defaultString(evaluationConfig.getModelNetFileName()));
+        instantiation.put("weight_path", defaultString(evaluationConfig.getWeightFileName()));
+        instantiation.put("model_name", defaultString(evaluationConfig.getModelNetName()));
         instantiation.put("parameters", new LinkedHashMap<String, Object>());
 
         Map<String, Object> estimatorParams = new LinkedHashMap<>();
@@ -518,16 +501,15 @@ public class FileUtils {
         if (!"detection".equalsIgnoreCase(evaluationConfig.getTask())) {
             estimatorParams.put("nb_classes",
                     evaluationConfig.getNbClasses() != null ? evaluationConfig.getNbClasses() : 10);
-        } else if (evaluationConfig.getNbClasses() != null) {
-            estimatorParams.put("nb_classes", evaluationConfig.getNbClasses());
         }
         estimatorParams.put("clip_values", flowSequence(Arrays.asList(0, 1)));
         estimatorParams.put("device", "cuda");
         estimatorParams.put("device_type", "gpu");
+        estimatorParams.put("channels_first", true);
 
         Map<String, Object> estimator = new LinkedHashMap<>();
-        estimator.put("framework", evaluationConfig.getFramework());
-        estimator.put("task", evaluationConfig.getTask());
+        estimator.put("framework", defaultString(evaluationConfig.getFramework()));
+        estimator.put("task", mapTask(evaluationConfig.getTask()));
         estimator.put("parameters", estimatorParams);
 
         Map<String, Object> model = new LinkedHashMap<>();
@@ -546,16 +528,9 @@ public class FileUtils {
         return flowSequence(Arrays.asList(3, 32, 32));
     }
 
-    private static String buildPath(String prefix, String fileName) {
-        if (fileName == null || fileName.trim().isEmpty()) {
-            return prefix;
-        }
-        return prefix + fileName;
-    }
-
     @SuppressWarnings("unchecked")
     private static Map<String, Object> buildEvaluationSection(BusinessConfig businessConfig) {
-        Map<String, Object> evaluation = initDefaultEvaluationStructure();
+        Map<String, Object> evaluation = createBaseEvaluationStructure();
         if (businessConfig == null || businessConfig.getEvaluateMethods() == null) {
             return evaluation;
         }
@@ -565,10 +540,10 @@ public class FileUtils {
                 continue;
             }
             String dimension = dimensionConfig.getDimension();
-            if (!EVALUATION_DIMENSIONS.contains(dimension)) {
+            if (!evaluation.containsKey(dimension)) {
                 continue;
             }
-            Map<String, Object> methodContainer = (Map<String, Object>) evaluation.get(dimension);
+            Map<String, Object> methodContainer = castToMap(evaluation.get(dimension));
             List<BusinessConfig.MethodMetricPair> methodMetricPairs = dimensionConfig.getMethodMetricMap();
             if (methodMetricPairs == null) {
                 continue;
@@ -577,51 +552,66 @@ public class FileUtils {
                 if (pair == null || pair.getMethod() == null || pair.getMethod().trim().isEmpty()) {
                     continue;
                 }
-                methodContainer.put(pair.getMethod(), buildMethodNode(pair.getMethod(), pair.getMetrics()));
+                Map<String, Object> methodNode = castToMap(
+                        methodContainer.computeIfAbsent(pair.getMethod(), FileUtils::createDefaultMethodNode));
+                methodNode.put("metrics", pair.getMetrics() != null
+                        ? new ArrayList<>(pair.getMetrics())
+                        : new ArrayList<>());
             }
         }
         return evaluation;
     }
 
-    private static Map<String, Object> initDefaultEvaluationStructure() {
+    private static Map<String, Object> createBaseEvaluationStructure() {
         Map<String, Object> evaluation = new LinkedHashMap<>();
-        for (String dimension : EVALUATION_DIMENSIONS) {
-            Map<String, Object> methods = new LinkedHashMap<>();
-            List<String> defaults = DEFAULT_DIMENSION_METHODS.get(dimension);
-            if (defaults != null) {
-                for (String method : defaults) {
-                    methods.put(method, buildMethodNode(method, null));
-                }
-            }
-            evaluation.put(dimension, methods);
-        }
+        evaluation.put("basic", createBasicSection());
+        evaluation.put("robustness", createRobustnessSection());
+        evaluation.put("interpretability", createSingleMethodSection("interpretability_testing"));
+        evaluation.put("safety", createSingleMethodSection("membership_inference"));
+        evaluation.put("generalization", createSingleMethodSection("generalization_testing"));
+        evaluation.put("fairness", createFairnessSection());
         return evaluation;
     }
 
-    private static Map<String, Object> buildMethodNode(String method, List<String> metrics) {
+    private static Map<String, Object> createBasicSection() {
+        Map<String, Object> basic = new LinkedHashMap<>();
+        Map<String, Object> performanceTesting = createDefaultMethodNode("performance_testing");
+        basic.put("performance_testing", performanceTesting);
+        return basic;
+    }
+
+    private static Map<String, Object> createRobustnessSection() {
+        Map<String, Object> robustness = new LinkedHashMap<>();
+        robustness.put("adversarial", createDefaultMethodNode("adversarial"));
+        robustness.put("corruption", createDefaultMethodNode("corruption"));
+        return robustness;
+    }
+
+    private static Map<String, Object> createSingleMethodSection(String method) {
+        Map<String, Object> section = new LinkedHashMap<>();
+        section.put(method, createDefaultMethodNode(method));
+        return section;
+    }
+
+    private static Map<String, Object> createFairnessSection() {
+        Map<String, Object> fairness = new LinkedHashMap<>();
+        fairness.put("group_fairness", createDefaultMethodNode("group_fairness"));
+        fairness.put("individual_fairness", createDefaultMethodNode("individual_fairness"));
+        return fairness;
+    }
+
+    private static Map<String, Object> createDefaultMethodNode(String method) {
         Map<String, Object> methodNode = new LinkedHashMap<>();
-        methodNode.put("metrics", metrics != null ? new ArrayList<>(metrics) : defaultMetricsPlaceholder());
+        methodNode.put("metrics", new ArrayList<>());
         switch (method) {
             case "performance_testing":
-                methodNode.put("performance_testing_config", defaultPlaceholderList());
+                methodNode.put("performance_testing_config", new ArrayList<>());
                 break;
             case "adversarial":
-                Map<String, Object> attacks = new LinkedHashMap<>();
-                attacks.put("fgsm", defaultAttackConfig());
-                attacks.put("pgd", defaultAttackConfig());
-                methodNode.put("attacks", attacks);
+                methodNode.put("attacks", createDefaultAttacks());
                 break;
             case "corruption":
-                methodNode.put("corruption_config", defaultPlaceholderList());
-                break;
-            case "group_fairness":
-            case "individual_fairness":
-            case "interpretability_testing":
-            case "membership_inference":
-            case "generalization_testing":
-                break;
-            case "coco_eval":
-                // coco_eval 暂无额外配置
+                methodNode.put("corruption_config", new ArrayList<>());
                 break;
             default:
                 break;
@@ -629,7 +619,14 @@ public class FileUtils {
         return methodNode;
     }
 
-    private static Map<String, Object> defaultAttackConfig() {
+    private static Map<String, Object> createDefaultAttacks() {
+        Map<String, Object> attacks = new LinkedHashMap<>();
+        attacks.put("fgsm", createAttackConfig());
+        attacks.put("pgd", createAttackConfig());
+        return attacks;
+    }
+
+    private static Map<String, Object> createAttackConfig() {
         Map<String, Object> parameters = new LinkedHashMap<>();
         parameters.put("eps", 0.03);
 
@@ -638,12 +635,9 @@ public class FileUtils {
         return attack;
     }
 
-    private static List<String> defaultMetricsPlaceholder() {
-        return new ArrayList<>(Collections.singletonList(""));
-    }
-
-    private static List<String> defaultPlaceholderList() {
-        return new ArrayList<>(Collections.singletonList(""));
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castToMap(Object value) {
+        return (Map<String, Object>) value;
     }
 
     private static <T> FlowSequence<T> flowSequence(Collection<? extends T> source) {
@@ -654,6 +648,17 @@ public class FileUtils {
         FlowSequence(Collection<? extends T> source) {
             super(source);
         }
+    }
+
+    private static String defaultString(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String mapTask(String task) {
+        if (task == null) {
+            return "";
+        }
+        return "detection".equalsIgnoreCase(task) ? "object_detection" : task;
     }
 }
 

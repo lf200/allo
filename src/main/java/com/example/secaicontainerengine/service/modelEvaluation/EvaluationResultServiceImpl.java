@@ -120,7 +120,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         // 2.3计算鲁棒性得分
         String robustness = resultMap.get("robustnessResult");
         if (isNotEmptyJson(robustness)) {
-            scoreMap.put("robustnessResult", computeRobustnessScore(robustness));
+            scoreMap.put("robustnessResult", computeRobustnessScore(robustness, task));
         }
         // 2.4计算泛化性得分
         String generalization = resultMap.get("generalizationResult");
@@ -524,31 +524,197 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         return 0.0;
     }
 
-    private double computeRobustnessScore(String result) {
+    /**
+     * 计算鲁棒性得分
+     *
+     * @param result 鲁棒性评测结果JSON字符串
+     * @param task 任务类型："classification"（分类）或 "detection"（目标检测）
+     * @return 鲁棒性得分（0.0 ~ 1.0）
+     */
+    private double computeRobustnessScore(String result, String task) {
 
         if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
             return 0.0;
         }
         try {
             JsonNode root = objectMapper.readTree(result);
-            String[] keys = { "adverr", "advacc", "acac", "actc", "mCE", "RmCE" };
-            double total = 0.0;
-            int count = 0;
-            for (String key : keys) {
-                if (root.has(key)) {
-                    try {
-                        double value = Double.parseDouble(root.get(key).asText());
-                        total += value;
-                        count++;
-                    } catch (NumberFormatException e) {
-                        System.err.println("字段 " + key + " 解析失败: " + e.getMessage());
-                    }
+
+            // 处理可能的"robustness"包裹层（评测模块发送的格式）
+            // 数据库可能存储为：{"robustness": "{\"adversarial\": [...]}"}
+            if (root.has("robustness") && root.get("robustness").isTextual()) {
+                String innerJson = root.get("robustness").asText();
+                root = objectMapper.readTree(innerJson);
+                log.debug("检测到robustness包裹层，已解析内层JSON");
+            }
+
+            // 根据任务类型和JSON格式选择解析方式
+            if ("detection".equals(task) && (root.has("adversarial") || root.has("corruption"))) {
+                // 目标检测任务：解析图像鲁棒性结果（包含 adversarial 和 corruption 数组）
+                log.debug("使用目标检测任务的鲁棒性评测指标");
+                return computeDetectionRobustnessScore(root);
+            } else {
+                // 分类任务或旧格式：使用传统指标
+                log.debug("使用分类任务的鲁棒性评测指标");
+                return computeClassificationRobustnessScore(root);
+            }
+        } catch (Exception e) {
+            log.error("鲁棒性得分计算失败: {}", e.getMessage(), e);
+            return 0.0;
+        }
+    }
+
+    /**
+     * 计算分类任务的鲁棒性得分
+     * 使用传统指标：adverr, advacc, acac, actc, mCE, RmCE
+     */
+    private double computeClassificationRobustnessScore(JsonNode root) {
+        String[] keys = { "adverr", "advacc", "acac", "actc", "mCE", "RmCE" };
+        double total = 0.0;
+        int count = 0;
+        for (String key : keys) {
+            if (root.has(key)) {
+                try {
+                    double value = Double.parseDouble(root.get(key).asText());
+                    total += value;
+                    count++;
+                } catch (NumberFormatException e) {
+                    log.warn("字段 {} 解析失败: {}", key, e.getMessage());
                 }
             }
-            return count > 0 ? total / count : 0.0;
+        }
+        return count > 0 ? total / count : 0.0;
+    }
+
+    /**
+     * 计算目标检测任务的鲁棒性得分
+     * 解析包含 adversarial 和 corruption 字段的鲁棒性评测结果
+     *
+     * @param root 鲁棒性评测结果的JSON根节点
+     * @return 鲁棒性综合得分（0.0 ~ 1.0）
+     */
+    private double computeDetectionRobustnessScore(JsonNode root) {
+        double totalScore = 0.0;
+        int scoreCount = 0;
+
+        // 1. 计算对抗攻击得分
+        if (root.has("adversarial") && root.get("adversarial").isArray()) {
+            double adversarialScore = computeAdversarialScore(root.get("adversarial"));
+            if (adversarialScore >= 0) {
+                totalScore += adversarialScore;
+                scoreCount++;
+                log.debug("对抗攻击得分: {}", adversarialScore);
+            }
+        }
+
+        // 2. 计算腐败测试得分
+        if (root.has("corruption") && root.get("corruption").isArray()) {
+            double corruptionScore = computeCorruptionScore(root.get("corruption"));
+            if (corruptionScore >= 0) {
+                totalScore += corruptionScore;
+                scoreCount++;
+                log.debug("腐败测试得分: {}", corruptionScore);
+            }
+        }
+
+        // 3. 返回平均得分
+        return scoreCount > 0 ? totalScore / scoreCount : 0.0;
+    }
+
+    /**
+     * 计算对抗攻击得分
+     * 基于 map_drop_rate, miss_rate, false_detection_rate 计算
+     * 指标值越低，得分越高
+     *
+     * @param adversarialArray 对抗攻击结果数组
+     * @return 对抗攻击得分（0.0 ~ 1.0），解析失败返回 -1
+     */
+    private double computeAdversarialScore(JsonNode adversarialArray) {
+        try {
+            double totalScore = 0.0;
+            int count = 0;
+
+            for (JsonNode attack : adversarialArray) {
+                double attackScore = 0.0;
+                int metricCount = 0;
+
+                // map_drop_rate: mAP下降率，越低越好，转换为得分 (1 - drop_rate)
+                if (attack.has("map_drop_rate")) {
+                    double mapDropRate = attack.get("map_drop_rate").asDouble();
+                    attackScore += Math.max(0.0, 1.0 - mapDropRate);
+                    metricCount++;
+                }
+
+                // miss_rate: 漏检率，越低越好，转换为得分 (1 - miss_rate)
+                if (attack.has("miss_rate")) {
+                    double missRate = attack.get("miss_rate").asDouble();
+                    attackScore += Math.max(0.0, 1.0 - missRate);
+                    metricCount++;
+                }
+
+                // false_detection_rate: 误检率，越低越好，转换为得分 (1 - fdr)
+                if (attack.has("false_detection_rate")) {
+                    double falseDetectionRate = attack.get("false_detection_rate").asDouble();
+                    attackScore += Math.max(0.0, 1.0 - falseDetectionRate);
+                    metricCount++;
+                }
+
+                // 计算当前攻击的平均得分
+                if (metricCount > 0) {
+                    totalScore += attackScore / metricCount;
+                    count++;
+                }
+            }
+
+            // 返回所有攻击的平均得分
+            return count > 0 ? totalScore / count : -1;
         } catch (Exception e) {
-            System.err.println("JSON 解析失败: " + e.getMessage());
-            return 0.0;
+            log.error("对抗攻击得分计算失败: {}", e.getMessage());
+            return -1;
+        }
+    }
+
+    /**
+     * 计算腐败测试得分
+     * 基于 performance_drop_rate 和 perturbation_tolerance 计算
+     *
+     * @param corruptionArray 腐败测试结果数组
+     * @return 腐败测试得分（0.0 ~ 1.0），解析失败返回 -1
+     */
+    private double computeCorruptionScore(JsonNode corruptionArray) {
+        try {
+            double totalScore = 0.0;
+            int count = 0;
+
+            for (JsonNode corruption : corruptionArray) {
+                double corruptionScore = 0.0;
+                int metricCount = 0;
+
+                // performance_drop_rate: 性能下降率，越低越好，转换为得分 (1 - drop_rate)
+                if (corruption.has("performance_drop_rate")) {
+                    double performanceDropRate = corruption.get("performance_drop_rate").asDouble();
+                    corruptionScore += Math.max(0.0, 1.0 - performanceDropRate);
+                    metricCount++;
+                }
+
+                // perturbation_tolerance: 扰动容忍度，越高越好，直接作为得分
+                if (corruption.has("perturbation_tolerance")) {
+                    double perturbationTolerance = corruption.get("perturbation_tolerance").asDouble();
+                    corruptionScore += Math.max(0.0, perturbationTolerance);
+                    metricCount++;
+                }
+
+                // 计算当前腐败的平均得分
+                if (metricCount > 0) {
+                    totalScore += corruptionScore / metricCount;
+                    count++;
+                }
+            }
+
+            // 返回所有腐败的平均得分
+            return count > 0 ? totalScore / count : -1;
+        } catch (Exception e) {
+            log.error("腐败测试得分计算失败: {}", e.getMessage());
+            return -1;
         }
     }
 
