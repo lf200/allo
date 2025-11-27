@@ -491,8 +491,8 @@ public class FileUtils {
 
     private static Map<String, Object> buildModelSection(EvaluationConfig evaluationConfig) {
         Map<String, Object> instantiation = new LinkedHashMap<>();
-        instantiation.put("model_path", defaultString(evaluationConfig.getModelNetFileName()));
-        instantiation.put("weight_path", defaultString(evaluationConfig.getWeightFileName()));
+        instantiation.put("model_path", "/app/userData/modelData/model/" + defaultString(evaluationConfig.getModelNetFileName()));
+        instantiation.put("weight_path", "/app/userData/modelData/" + defaultString(evaluationConfig.getWeightFileName()));
         instantiation.put("model_name", defaultString(evaluationConfig.getModelNetName()));
         instantiation.put("parameters", new LinkedHashMap<String, Object>());
 
@@ -658,7 +658,7 @@ public class FileUtils {
         if (task == null) {
             return "";
         }
-        return "detection".equalsIgnoreCase(task) ? "object_detection" : task;
+        return task;
     }
 }
 
