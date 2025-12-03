@@ -473,7 +473,8 @@ public class FileUtils {
     public static void generateEvaluationYamlConfigs(EvaluationConfig evaluationConfig, BusinessConfig businessConfig, String outputPath) throws IOException {
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("model", buildModelSection(evaluationConfig));
-        root.put("evaluation", buildEvaluationSection(businessConfig));
+        // 传递 task 类型给 buildEvaluationSection
+        root.put("evaluation", buildEvaluationSection(businessConfig, evaluationConfig.getTask()));
 
         File outputFile = new File(outputPath, "evaluationConfig.yaml");
         if (!outputFile.getParentFile().exists() && !outputFile.getParentFile().mkdirs()) {
@@ -504,7 +505,16 @@ public class FileUtils {
         instantiation.put("model_path", "/app/userData/modelData/model/" + defaultString(evaluationConfig.getModelNetFileName()));
         instantiation.put("weight_path", "/app/userData/modelData/" + defaultString(evaluationConfig.getWeightFileName()));
         instantiation.put("model_name", defaultString(evaluationConfig.getModelNetName()));
-        instantiation.put("parameters", new LinkedHashMap<String, Object>());
+
+        // 当 task 是 detection 时，添加特定的 parameters
+        Map<String, Object> modelParameters = new LinkedHashMap<>();
+        if ("detection".equalsIgnoreCase(evaluationConfig.getTask())) {
+            modelParameters.put("num_classes", 20);
+            modelParameters.put("network", "fasterrcnn");
+            modelParameters.put("pretrained", false);
+            modelParameters.put("trainable_backbone_layers", 3);
+        }
+        instantiation.put("parameters", modelParameters);
 
         Map<String, Object> estimatorParams = new LinkedHashMap<>();
         estimatorParams.put("input_shape", buildInputShape(evaluationConfig));
@@ -538,7 +548,7 @@ public class FileUtils {
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> buildEvaluationSection(BusinessConfig businessConfig) {
+    private static Map<String, Object> buildEvaluationSection(BusinessConfig businessConfig, String task) {
         Map<String, Object> evaluation = createBaseEvaluationStructure();
         if (businessConfig == null || businessConfig.getEvaluateMethods() == null) {
             return evaluation;
@@ -564,10 +574,28 @@ public class FileUtils {
                 Map<String, Object> methodNode = castToMap(
                         methodContainer.computeIfAbsent(pair.getMethod(), FileUtils::createDefaultMethodNode));
 
-                // 设置 metrics
-                methodNode.put("metrics", pair.getMetrics() != null
-                        ? new ArrayList<>(pair.getMetrics())
-                        : new ArrayList<>());
+                // 设置 metrics：如果前端传了就用前端的，否则根据 task 类型设置默认值
+                List<String> metrics;
+                if (pair.getMetrics() != null && !pair.getMetrics().isEmpty()) {
+                    // 前端传了 metrics，直接使用（原样接收，支持任意写法）
+                    metrics = new ArrayList<>(pair.getMetrics());
+                } else if ("basic".equals(dimension) && "performance_testing".equals(pair.getMethod())) {
+                    // 前端没传 metrics，根据 task 类型设置默认值
+                    if ("detection".equalsIgnoreCase(task)) {
+                        // detection 任务的默认指标（根据图片中的配置）
+                        metrics = new ArrayList<>();
+                        metrics.add("map");  // 默认使用 map，前端可以传 map/map_50/accuracy/map50/map@50 任意一个
+                        metrics.add("per_class_ap");
+                        metrics.add("precision");
+                        metrics.add("recall");
+                    } else {
+                        // 分类任务的默认指标
+                        metrics = Arrays.asList("accuracy", "precision", "recall", "f1score");
+                    }
+                } else {
+                    metrics = new ArrayList<>();
+                }
+                methodNode.put("metrics", metrics);
 
                 // 处理对抗攻击参数（adversarial 方法）
                 if ("adversarial".equals(pair.getMethod()) && pair.getAttacks() != null && !pair.getAttacks().isEmpty()) {
@@ -578,14 +606,13 @@ public class FileUtils {
                         Map<String, Object> attackParams = new LinkedHashMap<>();
 
                         if ("fgsm".equals(attackName)) {
-                            // FGSM 攻击：解析 fgsmEps 参数
-                            Double eps = parseRangeParameterDouble(pair.getFgsmEps(), 0.03);
-                            attackParams.put("eps", eps);
+                            // FGSM 攻击：解析 fgsmEps 参数范围 "[start,end,step]"
+                            Map<String, Object> epsRange = parseRangeParameterToMap(pair.getFgsmEps());
+                            attackParams.put("eps", epsRange);
                         } else if ("pgd".equals(attackName)) {
-                            // PGD 攻击：需要 eps 和 steps 两个参数
-                            Integer steps = parseRangeParameterInt(pair.getPgdSteps(), 10);
-                            attackParams.put("eps", 0.03);      // PGD 的 eps 可以固定或从前端传递
-                            attackParams.put("steps", steps);   // PGD 的核心参数是 steps
+                            // PGD 攻击：解析 pgdSteps 参数范围 "[start,end,step]"
+                            Map<String, Object> stepsRange = parseRangeParameterToMap(pair.getPgdSteps());
+                            attackParams.put("steps", stepsRange);
                         }
 
                         attackConfig.put("parameters", attackParams);
@@ -754,6 +781,51 @@ public class FileUtils {
         }
 
         return defaultValue;
+    }
+
+    /**
+     * 解析前端传来的范围参数为 Map 对象，格式: [start,end,step]
+     * 生成 YAML 格式: {start: value1, end: value2, step: value3}
+     *
+     * @param rangeStr 范围字符串，如 "[0.001,0.01,0.002]" 或 "[10,100,10]"
+     * @return Map 对象包含 start, end, step 三个键
+     */
+    private static Map<String, Object> parseRangeParameterToMap(String rangeStr) {
+        Map<String, Object> rangeMap = new LinkedHashMap<>();
+
+        if (rangeStr == null || rangeStr.trim().isEmpty()) {
+            // 返回空 Map
+            return rangeMap;
+        }
+
+        try {
+            // 去掉方括号和空格
+            String clean = rangeStr.replaceAll("[\\[\\]\\s]", "");
+            String[] parts = clean.split(",");
+
+            if (parts.length >= 3) {
+                // 尝试解析为浮点数（兼容整数和小数）
+                double start = Double.parseDouble(parts[0]);
+                double end = Double.parseDouble(parts[1]);
+                double step = Double.parseDouble(parts[2]);
+
+                // 判断是否为整数（避免 10.0 这种格式）
+                if (start == (int)start && end == (int)end && step == (int)step) {
+                    rangeMap.put("start", (int)start);
+                    rangeMap.put("end", (int)end);
+                    rangeMap.put("step", (int)step);
+                } else {
+                    rangeMap.put("start", start);
+                    rangeMap.put("end", end);
+                    rangeMap.put("step", step);
+                }
+            }
+        } catch (Exception e) {
+            // 解析失败，返回空 Map
+            log.warn("解析范围参数失败: {}", rangeStr, e);
+        }
+
+        return rangeMap;
     }
 }
 
