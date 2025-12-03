@@ -550,27 +550,52 @@ public class FileUtils {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> buildEvaluationSection(BusinessConfig businessConfig, String task) {
         Map<String, Object> evaluation = createBaseEvaluationStructure();
+
+        log.info("========================================");
+        log.info("开始构建 evaluation section");
+        log.info("task 类型: {}", task);
+        log.info("businessConfig 是否为空: {}", businessConfig == null);
+
         if (businessConfig == null || businessConfig.getEvaluateMethods() == null) {
+            log.warn("businessConfig 或 evaluateMethods 为空，返回基础结构");
             return evaluation;
         }
+
+        log.info("evaluateMethods 数量: {}", businessConfig.getEvaluateMethods().size());
 
         for (BusinessConfig.EvaluationDimensionConfig dimensionConfig : businessConfig.getEvaluateMethods()) {
             if (dimensionConfig == null) {
                 continue;
             }
             String dimension = dimensionConfig.getDimension();
+            log.info("---------- 处理维度: {} ----------", dimension);
+
             if (!evaluation.containsKey(dimension)) {
+                log.warn("evaluation 中不包含维度: {}", dimension);
                 continue;
             }
             Map<String, Object> methodContainer = castToMap(evaluation.get(dimension));
             List<BusinessConfig.MethodMetricPair> methodMetricPairs = dimensionConfig.getMethodMetricMap();
             if (methodMetricPairs == null) {
+                log.warn("维度 {} 的 methodMetricPairs 为空", dimension);
                 continue;
             }
+
+            log.info("维度 {} 下有 {} 个方法", dimension, methodMetricPairs.size());
+
             for (BusinessConfig.MethodMetricPair pair : methodMetricPairs) {
                 if (pair == null || pair.getMethod() == null || pair.getMethod().trim().isEmpty()) {
+                    log.warn("pair 或 method 为空，跳过");
                     continue;
                 }
+
+                String method = pair.getMethod();
+                log.info(">>> 处理方法: {}", method);
+                log.info("    - metrics: {}", pair.getMetrics());
+                log.info("    - attacks: {}", pair.getAttacks());
+                log.info("    - fgsmEps: {}", pair.getFgsmEps());
+                log.info("    - pgdSteps: {}", pair.getPgdSteps());
+                log.info("    - corruptions: {}", pair.getCorruptions());
                 Map<String, Object> methodNode = castToMap(
                         methodContainer.computeIfAbsent(pair.getMethod(), FileUtils::createDefaultMethodNode));
 
@@ -601,17 +626,44 @@ public class FileUtils {
                 if ("adversarial".equals(pair.getMethod()) && pair.getAttacks() != null && !pair.getAttacks().isEmpty()) {
                     Map<String, Object> attacks = new LinkedHashMap<>();
 
+                    log.info("========== 开始处理对抗攻击参数 ==========");
+                    log.info("前端传来的攻击方法列表: {}", pair.getAttacks());
+                    log.info("前端传来的 fgsmEps 参数: {}", pair.getFgsmEps());
+                    log.info("前端传来的 pgdSteps 参数: {}", pair.getPgdSteps());
+
                     for (String attackName : pair.getAttacks()) {
                         Map<String, Object> attackConfig = new LinkedHashMap<>();
                         Map<String, Object> attackParams = new LinkedHashMap<>();
 
                         if ("fgsm".equals(attackName)) {
                             // FGSM 攻击：解析 fgsmEps 参数范围 "[start,end,step]"
-                            Map<String, Object> epsRange = parseRangeParameterToMap(pair.getFgsmEps());
+                            String fgsmEpsStr = pair.getFgsmEps();
+                            log.info("FGSM - 原始字符串: {}", fgsmEpsStr);
+                            Map<String, Object> epsRange = parseRangeParameterToMap(fgsmEpsStr);
+                            log.info("FGSM - 解析后的 epsRange: {}", epsRange);
+                            // 如果前端没有传参数或参数为空，使用默认值
+                            if (epsRange.isEmpty()) {
+                                log.warn("FGSM eps 参数为空，使用默认值");
+                                epsRange = new LinkedHashMap<>();
+                                epsRange.put("start", 0.001);
+                                epsRange.put("end", 0.01);
+                                epsRange.put("step", 0.002);
+                            }
                             attackParams.put("eps", epsRange);
                         } else if ("pgd".equals(attackName)) {
                             // PGD 攻击：解析 pgdSteps 参数范围 "[start,end,step]"
-                            Map<String, Object> stepsRange = parseRangeParameterToMap(pair.getPgdSteps());
+                            String pgdStepsStr = pair.getPgdSteps();
+                            log.info("PGD - 原始字符串: {}", pgdStepsStr);
+                            Map<String, Object> stepsRange = parseRangeParameterToMap(pgdStepsStr);
+                            log.info("PGD - 解析后的 stepsRange: {}", stepsRange);
+                            // 如果前端没有传参数或参数为空，使用默认值
+                            if (stepsRange.isEmpty()) {
+                                log.warn("PGD steps 参数为空，使用默认值");
+                                stepsRange = new LinkedHashMap<>();
+                                stepsRange.put("start", 10);
+                                stepsRange.put("end", 100);
+                                stepsRange.put("step", 10);
+                            }
                             attackParams.put("steps", stepsRange);
                         }
 
@@ -620,6 +672,7 @@ public class FileUtils {
                     }
 
                     methodNode.put("attacks", attacks);
+                    log.info("========== 对抗攻击参数处理完成 ==========");
                 }
 
                 // 处理扰动攻击参数（corruption 方法）
@@ -637,7 +690,7 @@ public class FileUtils {
         evaluation.put("basic", createBasicSection());
         evaluation.put("robustness", createRobustnessSection());
         evaluation.put("interpretability", createSingleMethodSection("interpretability_testing"));
-        evaluation.put("safety", createSingleMethodSection("membership_inference"));
+        evaluation.put("safety", createSingleMethodSection("membership_inference_detection"));
         evaluation.put("generalization", createSingleMethodSection("generalization_testing"));
         evaluation.put("fairness", createFairnessSection());
         return evaluation;
@@ -665,8 +718,7 @@ public class FileUtils {
 
     private static Map<String, Object> createFairnessSection() {
         Map<String, Object> fairness = new LinkedHashMap<>();
-        fairness.put("group_fairness", createDefaultMethodNode("group_fairness"));
-        fairness.put("individual_fairness", createDefaultMethodNode("individual_fairness"));
+        fairness.put("individual_group_fairness", createDefaultMethodNode("individual_group_fairness"));
         return fairness;
     }
 
@@ -691,18 +743,32 @@ public class FileUtils {
 
     private static Map<String, Object> createDefaultAttacks() {
         Map<String, Object> attacks = new LinkedHashMap<>();
-        attacks.put("fgsm", createAttackConfig());
-        attacks.put("pgd", createAttackConfig());
+
+        // FGSM 默认配置：使用 eps 参数，格式为 {start, end, step}
+        Map<String, Object> fgsmParams = new LinkedHashMap<>();
+        Map<String, Object> fgsmEpsRange = new LinkedHashMap<>();
+        fgsmEpsRange.put("start", 0.001);
+        fgsmEpsRange.put("end", 0.01);
+        fgsmEpsRange.put("step", 0.002);
+        fgsmParams.put("eps", fgsmEpsRange);
+
+        Map<String, Object> fgsmConfig = new LinkedHashMap<>();
+        fgsmConfig.put("parameters", fgsmParams);
+        attacks.put("fgsm", fgsmConfig);
+
+        // PGD 默认配置：使用 steps 参数，格式为 {start, end, step}
+        Map<String, Object> pgdParams = new LinkedHashMap<>();
+        Map<String, Object> pgdStepsRange = new LinkedHashMap<>();
+        pgdStepsRange.put("start", 10);
+        pgdStepsRange.put("end", 100);
+        pgdStepsRange.put("step", 10);
+        pgdParams.put("steps", pgdStepsRange);
+
+        Map<String, Object> pgdConfig = new LinkedHashMap<>();
+        pgdConfig.put("parameters", pgdParams);
+        attacks.put("pgd", pgdConfig);
+
         return attacks;
-    }
-
-    private static Map<String, Object> createAttackConfig() {
-        Map<String, Object> parameters = new LinkedHashMap<>();
-        parameters.put("eps", 0.03);
-
-        Map<String, Object> attack = new LinkedHashMap<>();
-        attack.put("parameters", parameters);
-        return attack;
     }
 
     @SuppressWarnings("unchecked")

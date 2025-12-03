@@ -82,10 +82,23 @@ public class FileController {
      */
     @PostMapping("/upload/{userId}")
     public Map<String, Object> uploadFile(@RequestPart("file") MultipartFile multipartFile,
-                                          @RequestPart("data") UploadFileRequest uploadFileRequest,
+                                          @RequestPart("data") String rawJsonData,
                                           @PathVariable Long userId
 //                                          HttpServletRequest request
                                             ) {
+
+        log.info("========== 接收到的原始 JSON 字符串 ==========");
+        log.info(rawJsonData);
+        log.info("==========================================");
+
+        // 手动反序列化
+        UploadFileRequest uploadFileRequest;
+        try {
+            uploadFileRequest = JSONUtil.toBean(rawJsonData, UploadFileRequest.class);
+        } catch (Exception e) {
+            log.error("JSON 反序列化失败", e);
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "数据格式错误");
+        }
 
         //验证上传的文件是否满足要求
         String biz = uploadFileRequest.getBiz();
@@ -139,8 +152,36 @@ public class FileController {
             throw new BusinessException(SYSTEM_ERROR,"resourceConfig上传失败");
         }
         BusinessConfig businessConfig = uploadFileRequest.getBusinessConfig();
+        log.info("========== 后端接收到的数据 ==========");
+        log.info("businessConfig 是否为 null: {}", businessConfig == null);
         if(businessConfig != null) {
-            modelMessage.setBusinessConfig(JSONUtil.toJsonStr(businessConfig));
+            log.info("businessConfig.evaluateMethods 数量: {}",
+                businessConfig.getEvaluateMethods() != null ? businessConfig.getEvaluateMethods().size() : "null");
+
+            // 打印完整的 businessConfig JSON
+            String businessConfigJson = JSONUtil.toJsonStr(businessConfig);
+            log.info("完整的 businessConfig JSON:");
+            log.info(businessConfigJson);
+
+            // 如果有 evaluateMethods，详细打印每个维度的信息
+            if (businessConfig.getEvaluateMethods() != null) {
+                for (BusinessConfig.EvaluationDimensionConfig dimConfig : businessConfig.getEvaluateMethods()) {
+                    log.info("---------- 维度: {} ----------", dimConfig.getDimension());
+                    if (dimConfig.getMethodMetricMap() != null) {
+                        for (BusinessConfig.MethodMetricPair pair : dimConfig.getMethodMetricMap()) {
+                            log.info("  方法: {}", pair.getMethod());
+                            log.info("  metrics: {}", pair.getMetrics());
+                            log.info("  attacks: {}", pair.getAttacks());
+                            log.info("  fgsmEps: {}", pair.getFgsmEps());
+                            log.info("  pgdSteps: {}", pair.getPgdSteps());
+                            log.info("  corruptions: {}", pair.getCorruptions());
+                        }
+                    }
+                }
+            }
+            log.info("========================================");
+
+            modelMessage.setBusinessConfig(businessConfigJson);
         }else{
             throw new BusinessException(SYSTEM_ERROR,"businessConfig上传失败");
         }
