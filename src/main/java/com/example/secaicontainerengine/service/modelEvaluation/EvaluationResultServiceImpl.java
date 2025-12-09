@@ -557,8 +557,66 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         }
     }
 
+    /**
+     * 计算可解释性得分
+     *
+     * @param result 可解释性评测结果JSON字符串
+     * @return 可解释性得分（0.0 ~ 1.0）
+     */
     private double computeInterpretabilityScore(String result) {
-        return 0.0;
+        if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
+            return 0.0;
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(result);
+
+            // 检查是否有 fidelity_summary 节点
+            if (root.has("fidelity_summary")) {
+                JsonNode fidelitySummary = root.get("fidelity_summary");
+
+                // 提取 keep_mean 和 drop_mean
+                // keep_mean: 保留重要特征时的模型输出一致性（越高越好，范围 0-1）
+                // drop_mean: 删除重要特征后的模型输出变化（越低说明特征重要性识别越准，范围 0-1）
+                Double keepMean = null;
+                Double dropMean = null;
+
+                if (fidelitySummary.has("keep_mean") && !fidelitySummary.get("keep_mean").isNull()) {
+                    keepMean = fidelitySummary.get("keep_mean").asDouble();
+                }
+
+                if (fidelitySummary.has("drop_mean") && !fidelitySummary.get("drop_mean").isNull()) {
+                    dropMean = fidelitySummary.get("drop_mean").asDouble();
+                }
+
+                // 计算综合得分
+                double totalScore = 0.0;
+                int validMetricsCount = 0;
+
+                // keep_mean 越高越好，直接作为正向指标
+                if (keepMean != null) {
+                    totalScore += Math.max(0.0, Math.min(1.0, keepMean));
+                    validMetricsCount++;
+                }
+
+                // drop_mean 越低越好，使用 (1 - drop_mean) 作为正向指标
+                if (dropMean != null) {
+                    double normalizedDropScore = Math.max(0.0, Math.min(1.0, 1.0 - dropMean));
+                    totalScore += normalizedDropScore;
+                    validMetricsCount++;
+                }
+
+                // 返回平均分
+                return validMetricsCount > 0 ? totalScore / validMetricsCount : 0.0;
+            }
+
+            // 如果没有 fidelity_summary 节点，返回 0.0
+            return 0.0;
+
+        } catch (Exception e) {
+            log.error("可解释性得分计算失败: {}", e.getMessage(), e);
+            return 0.0;
+        }
     }
 
     /**
@@ -1234,18 +1292,27 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
             // 根据任务类型选择不同的指标
             if ("detection".equals(task)) {
-                // 目标检测任务：使用 gap_pairs（泛化比率）
-                if (root.has("gap_pairs")) {
-                    try {
-                        double rawValue = Double.parseDouble(root.get("gap_pairs").asText());
-                        // gap_pairs 是训练集和测试集之间的性能差距，越小泛化性越好
-                        // 假设 gap_pairs 在 [0, 1] 范围内，0表示完美泛化，1表示完全不泛化
-                        double normalizedValue = Math.max(0.0, 1.0 - rawValue);
-                        totalScore += normalizedValue;
-                        validMetricsCount++;
-                        log.debug("目标检测泛化性指标 gap_pairs: {}, 归一化得分: {}", rawValue, normalizedValue);
-                    } catch (NumberFormatException e) {
-                        log.warn("字段 gap_pairs 解析失败: {}", e.getMessage());
+                // 目标检测任务：使用 drop_ratio_xx（跨数据集性能下降率）
+                // Python 实际发送：source_map_50, target_map_50, drop_ratio_50
+                // 可能有多个 IoU 阈值，如 drop_ratio_50, drop_ratio_75 等
+
+                Iterator<String> fieldNames = root.fieldNames();
+                while (fieldNames.hasNext()) {
+                    String fieldName = fieldNames.next();
+
+                    // 处理所有 drop_ratio 开头的字段
+                    if (fieldName.startsWith("drop_ratio_")) {
+                        try {
+                            double rawValue = Double.parseDouble(root.get(fieldName).asText());
+                            // drop_ratio 是性能下降率，越小泛化性越好
+                            // 范围 [0, 1]：0表示完美泛化（无性能下降），1表示完全不泛化
+                            double normalizedValue = Math.max(0.0, 1.0 - rawValue);
+                            totalScore += normalizedValue;
+                            validMetricsCount++;
+                            log.debug("目标检测泛化性指标 {}: {}, 归一化得分: {}", fieldName, rawValue, normalizedValue);
+                        } catch (NumberFormatException e) {
+                            log.warn("字段 {} 解析失败: {}", fieldName, e.getMessage());
+                        }
                     }
                 }
             } else {
