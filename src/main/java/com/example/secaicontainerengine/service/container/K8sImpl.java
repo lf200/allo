@@ -30,6 +30,10 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -233,6 +237,7 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
                     @Override
                     public void eventReceived(Action action, Pod pod) {
                         String phase = pod.getStatus().getPhase();
+                        String evaluateMethod = containerName.split("-")[2];
                         log.info("action: {} phase: {}", action, phase);
 
                 // 打印详细的 Pending 原因（用于调试）
@@ -296,6 +301,7 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
                                         .inContainer(containerName)
                                         .getLog();
                                 if (logs != null && !logs.isEmpty()) {
+                                    savePodLogs(userId, modelId, evaluateMethod, phase, logs);
                                     parseMonitorResults(logs, containerName);
                                 }
                             } catch (Exception e) {
@@ -481,6 +487,27 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
             }
         }
         evaluationResultMapper.updateById(er);
+    }
+
+    private void savePodLogs(Long userId, Long modelId, String evaluateMethod, String phase, String logs) {
+        try {
+            Path logDir = Path.of(rootPath,
+                    userData,
+                    String.valueOf(userId),
+                    String.valueOf(modelId),
+                    evaluationData,
+                    evaluateMethod,
+                    "logs");
+            Files.createDirectories(logDir);
+
+            String fileName = String.format("%s-%s-%d.log", evaluateMethod, phase, System.currentTimeMillis());
+            Path logFile = logDir.resolve(fileName);
+
+            Files.writeString(logFile, logs, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (Exception e) {
+            log.warn("保存 Pod 日志失败，userId: {}, modelId: {}, evaluateMethod: {}", userId, modelId, evaluateMethod, e);
+        }
     }
 
     @Override
