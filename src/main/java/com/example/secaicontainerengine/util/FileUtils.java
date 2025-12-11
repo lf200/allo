@@ -52,15 +52,19 @@ public class FileUtils {
                 }
 
                 if (zipEntry.isDirectory()) {
-                    // 创建目录
-                    if (!newFile.mkdirs()) {
-                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法创建目录: " + newFile.getPath());
+                    // 目录存在就不要再创建
+                    if (!newFile.exists()) {
+                        if (!newFile.mkdirs()) {
+                            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法创建目录: " + newFile.getPath());
+                        }
                     }
                 } else {
-                    // 确保父目录存在
+                    // 文件情况：先确保父目录存在
                     File parentDir = newFile.getParentFile();
-                    if (!parentDir.exists() && !parentDir.mkdirs()) {
-                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法创建父目录: " + parentDir.getPath());
+                    if (!parentDir.exists()) {
+                        if (!parentDir.mkdirs()) {
+                            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "无法创建父目录: " + parentDir.getPath());
+                        }
                     }
 
                     // 写入文件
@@ -470,10 +474,13 @@ public class FileUtils {
 //        }
 //    }
 
-    public static void generateEvaluationYamlConfigs(EvaluationConfig evaluationConfig, BusinessConfig businessConfig, String outputPath) throws IOException {
+    /**
+     * 为检测任务生成评估YAML配置
+     */
+    public static void generateDetectionEvaluationYaml(EvaluationConfig evaluationConfig, BusinessConfig businessConfig, String outputPath) throws IOException {
 
-        
-        log.info("使用通用模板生成配置文件");
+
+        log.info("使用检测任务模板生成配置文件");
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("model", buildModelSection(evaluationConfig));
         // 传递 task 类型给 buildEvaluationSection
@@ -543,6 +550,7 @@ public class FileUtils {
         estimatorParams.put("clip_values", Arrays.asList(0, 1));
         estimatorParams.put("device", "cuda");
         estimatorParams.put("device_type", "gpu");
+        estimatorParams.put("channels_first", true);
         modelEstimator.put("parameters", estimatorParams);
 
         Map<String, Object> modelConfig = new HashMap<>();
@@ -739,13 +747,10 @@ public class FileUtils {
                             log.info("FGSM - 原始字符串: {}", fgsmEpsStr);
                             Map<String, Object> epsRange = parseRangeParameterToMap(fgsmEpsStr);
                             log.info("FGSM - 解析后的 epsRange: {}", epsRange);
-                            // 如果前端没有传参数或参数为空，使用默认值
+                            // 如果前端没有传参数或参数为空，跳过该攻击方法
                             if (epsRange.isEmpty()) {
-                                log.warn("FGSM eps 参数为空，使用默认值");
-                                epsRange = new LinkedHashMap<>();
-                                epsRange.put("start", 0.001);
-                                epsRange.put("end", 0.01);
-                                epsRange.put("step", 0.002);
+                                log.warn("FGSM eps 参数为空，跳过该攻击方法");
+                                continue;
                             }
                             attackParams.put("eps", epsRange);
                         } else if ("pgd".equals(attackName)) {
@@ -754,13 +759,10 @@ public class FileUtils {
                             log.info("PGD - 原始字符串: {}", pgdStepsStr);
                             Map<String, Object> stepsRange = parseRangeParameterToMap(pgdStepsStr);
                             log.info("PGD - 解析后的 stepsRange: {}", stepsRange);
-                            // 如果前端没有传参数或参数为空，使用默认值
+                            // 如果前端没有传参数或参数为空，跳过该攻击方法
                             if (stepsRange.isEmpty()) {
-                                log.warn("PGD steps 参数为空，使用默认值");
-                                stepsRange = new LinkedHashMap<>();
-                                stepsRange.put("start", 10);
-                                stepsRange.put("end", 100);
-                                stepsRange.put("step", 10);
+                                log.warn("PGD steps 参数为空，跳过该攻击方法");
+                                continue;
                             }
                             attackParams.put("steps", stepsRange);
                         }
@@ -775,8 +777,8 @@ public class FileUtils {
 
                 // 处理扰动攻击参数（corruption 方法）
                 if ("corruption".equals(pair.getMethod()) && pair.getCorruptions() != null && !pair.getCorruptions().isEmpty()) {
-                    // corruption_config 可以是扰动方法列表
-                    methodNode.put("corruption_config", new ArrayList<>(pair.getCorruptions()));
+                    // corruptions 是扰动方法列表
+                    methodNode.put("corruptions", new ArrayList<>(pair.getCorruptions()));
                 }
             }
         }
@@ -827,46 +829,14 @@ public class FileUtils {
             case "performance_testing":
                 methodNode.put("performance_testing_config", new ArrayList<>());
                 break;
-            case "adversarial":
-                methodNode.put("attacks", createDefaultAttacks());
-                break;
             case "corruption":
-                methodNode.put("corruption_config", new ArrayList<>());
+                methodNode.put("corruptions", new ArrayList<>());
                 break;
             default:
+                // adversarial方法不添加默认attacks，只有用户传了才添加
                 break;
         }
         return methodNode;
-    }
-
-    private static Map<String, Object> createDefaultAttacks() {
-        Map<String, Object> attacks = new LinkedHashMap<>();
-
-        // FGSM 默认配置：使用 eps 参数，格式为 {start, end, step}
-        Map<String, Object> fgsmParams = new LinkedHashMap<>();
-        Map<String, Object> fgsmEpsRange = new LinkedHashMap<>();
-        fgsmEpsRange.put("start", 0.001);
-        fgsmEpsRange.put("end", 0.01);
-        fgsmEpsRange.put("step", 0.002);
-        fgsmParams.put("eps", fgsmEpsRange);
-
-        Map<String, Object> fgsmConfig = new LinkedHashMap<>();
-        fgsmConfig.put("parameters", fgsmParams);
-        attacks.put("fgsm", fgsmConfig);
-
-        // PGD 默认配置：使用 steps 参数，格式为 {start, end, step}
-        Map<String, Object> pgdParams = new LinkedHashMap<>();
-        Map<String, Object> pgdStepsRange = new LinkedHashMap<>();
-        pgdStepsRange.put("start", 10);
-        pgdStepsRange.put("end", 100);
-        pgdStepsRange.put("step", 10);
-        pgdParams.put("steps", pgdStepsRange);
-
-        Map<String, Object> pgdConfig = new LinkedHashMap<>();
-        pgdConfig.put("parameters", pgdParams);
-        attacks.put("pgd", pgdConfig);
-
-        return attacks;
     }
 
     @SuppressWarnings("unchecked")

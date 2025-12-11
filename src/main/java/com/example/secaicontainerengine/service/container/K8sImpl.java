@@ -4,7 +4,6 @@ import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.example.secaicontainerengine.constant.EvaluateDimensionConstant;
 import com.example.secaicontainerengine.mapper.ContainerMapper;
 import com.example.secaicontainerengine.mapper.EvaluationMethodMapper;
 import com.example.secaicontainerengine.mapper.EvaluationResultMapper;
@@ -37,14 +36,14 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.*;
-
+import java.util.stream.Collectors;
 
 import static com.example.secaicontainerengine.util.YamlUtil.getName;
 import static com.example.secaicontainerengine.util.YamlUtil.renderTemplate;
 
 @Service(value = "k8sContainerImpl")
 @Slf4j
-public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements ContainerService{
+public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements ContainerService {
 
     @Autowired
     private KubernetesClient K8sClient;
@@ -58,12 +57,6 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
     @Autowired
     private PodUtil podUtil;
 
-    @Value("${k8s.yaml}")
-    private String k8sYaml;
-
-    @Value("${k8s.adversarial-yaml}")
-    private String k8sAdversarialYaml;
-
     @Value("${k8s.adversarial-gpu-yaml}")
     private String k8sAdversarialGpuYaml;
 
@@ -75,7 +68,6 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
 
     @Autowired
     private ContainerMapper containerMapper;
-
 
     @Value("${nfs.userData}")
     private String userData;
@@ -94,8 +86,10 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
 
     @Autowired
     private EvaluationMethodMapper evaluationMethodMapper;
+
     @Autowired
     private EvaluationResultMapper evaluationResultMapper;
+
     @Lazy
     @Autowired
     private ModelEvaluationMapper modelEvaluationMapper;
@@ -115,41 +109,17 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
     @Value("${localhost.resultUrl}")
     private String resultUrl;
 
-    //初始化接口
-    public List<ByteArrayInputStream> init(Long userId, Map<String, String> imageUrl, Map<String, Map> imageParam) throws IOException, TemplateException {
-        List<ByteArrayInputStream> streams = new ArrayList<>();
-        for(String value: imageUrl.values()){
-            //pod命名方式：url+用户id
-            String podName = value+userId;
-            log.info("初始化接口：Pod的名称-" + podName);
-            //准备模板变量
-            Map<String, String> values = new HashMap<>();
-            values.put("pod_name", podName);
-            values.put("container_name", value);
-            values.put("image", value);
-            //生成填充好的yml文件字节流
-            String yamlContent = renderTemplate(k8sYaml, values);
-            ByteArrayInputStream ymlStream = new ByteArrayInputStream(yamlContent.getBytes());
-            streams.add(ymlStream);
-        }
-        return streams;
-    }
-
-    //初始化接口
+    // 初始化接口
+    @Override
     public List<ByteArrayInputStream> initNew(ModelMessage modelMessage, List<String> evaluationTypes) throws IOException, TemplateException {
         List<ByteArrayInputStream> streams = new ArrayList<>();
         for (String evaluationType : evaluationTypes) {
-            //pod命名方式：模型id-用户id-评测方法
             String podName = modelMessage.getUserId() + "-" + modelMessage.getId() + "-" + evaluationType.toLowerCase();
-            log.info("初始化接口：Pod的名称-" + podName);
-            String imageName = registryHost + "/" + modelMessage.getId();
-            log.info("初始化接口：imageName的名称-" + imageName);
-            ResourceConfig podResourceLimits = calculatePodResourceFromModel(modelMessage);
-            String gpuCoreLimits = podResourceLimits.getGpuCoreRequired().toString();
-            String gpuMemoryLimits = podResourceLimits.getGpuMemoryRequired().toString();
-            String gpuNumLimits = podResourceLimits.getGpuNumRequired().toString();
+            log.info("初始化接口：Pod的名称-{}", podName);
 
-            //准备模板变量
+            String imageName = registryHost + "/" + modelMessage.getId();
+            ResourceConfig podResourceLimits = calculatePodResourceFromModel(modelMessage);
+
             Map<String, String> values = new HashMap<>();
             values.put("podName", podName);
             values.put("containerName", podName);
@@ -158,85 +128,112 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
             values.put("evaluationData", evaluationData);
             values.put("evaluationType", evaluationType);
             values.put("systemData", systemData);
-            values.put("nfsIP",nfsIp);
-            values.put("rootPath",rootPath);
-            values.put("userId",String.valueOf(modelMessage.getUserId()));
-            values.put("modelId",String.valueOf(modelMessage.getId()));
-            values.put("gpuCoreLimits",gpuCoreLimits);
-            values.put("gpuMemoryLimits",gpuMemoryLimits);
-            values.put("gpuNumLimits",gpuNumLimits);
+            values.put("nfsIP", nfsIp);
+            values.put("rootPath", rootPath);
+            values.put("userId", String.valueOf(modelMessage.getUserId()));
+            values.put("modelId", String.valueOf(modelMessage.getId()));
+            values.put("gpuCoreLimits", podResourceLimits.getGpuCoreRequired().toString());
+            values.put("gpuMemoryLimits", podResourceLimits.getGpuMemoryRequired().toString());
+            values.put("gpuNumLimits", podResourceLimits.getGpuNumRequired().toString());
             values.put("evaluateDimension", evaluationType);
             values.put("logUrl", logUrl);
             values.put("resultUrl", resultUrl);
-            values.put("resultColumn", evaluationType+"Result");
+            values.put("resultColumn", evaluationType + "Result");
 
-
-            //生成填充好的yml文件字节流
             String yamlContent = renderTemplate(k8sAdversarialGpuYaml, values);
-//            String yamlContent = renderTemplate(k8sAdversarialYaml, values);
-            ByteArrayInputStream ymlStream = new ByteArrayInputStream(yamlContent.getBytes());
-            streams.add(ymlStream);
+            streams.add(new ByteArrayInputStream(yamlContent.getBytes()));
 
             log.info("初始化接口：streams构建完毕");
         }
         return streams;
     }
 
-    //启动接口
+    // 启动接口
+    @Override
     public void start(Long userId, Long modelId, List<ByteArrayInputStream> streams) throws IOException {
 
         for (ByteArrayInputStream stream : streams) {
-            // 2.获取容器的名字
-            String containerName = getName(stream);
 
-            // 3.获取到pod对应的评测任务对应的评测方法
+            // 重要：getName 会读取 stream，所以要复制一份用于真正 create
+            byte[] yamlBytes = stream.readAllBytes();
+            ByteArrayInputStream streamForName = new ByteArrayInputStream(yamlBytes);
+            ByteArrayInputStream streamForCreate = new ByteArrayInputStream(yamlBytes);
+
+            String containerName = getName(streamForName);
             String evaluateMethod = containerName.split("-")[2];
-            QueryWrapper<EvaluationMethod> queryWrapper = new QueryWrapper<>();
-            queryWrapper.eq("methodName", evaluateMethod);
-            EvaluationMethod evaluationMethod = evaluationMethodMapper.selectOne(queryWrapper);
+
+            EvaluationMethod evaluationMethod = evaluationMethodMapper.selectOne(
+                    new QueryWrapper<EvaluationMethod>().eq("methodName", evaluateMethod)
+            );
             Long evaluationMethodId = evaluationMethod.getId();
 
-            // 4.启动评测任务
             taskExecutor.execute(() -> {
-                // 记录开始时间
                 long startTime = System.currentTimeMillis();
 
-                // 修改单次评测任务表评测状态
-                EvaluationResult evaluationResult = EvaluationResult.builder()
-                        .evaluateMethodId(evaluationMethodId)
-                        .userId(userId)
-                        .modelId(modelId)
-                        .status("评测中")
-                        .build();
-                evaluationResultMapper.insert(evaluationResult);
+                // === (1) Upsert evaluation_result，避免重复插入 ===
+                LambdaQueryWrapper<EvaluationResult> erQw = new LambdaQueryWrapper<>();
+                erQw.eq(EvaluationResult::getModelId, modelId)
+                        .eq(EvaluationResult::getEvaluateMethodId, evaluationMethodId);
 
-                // 创建容器
-                HasMetadata metadata = K8sClient.resource(stream).inNamespace("default").create();
+                EvaluationResult exist = evaluationResultMapper.selectOne(erQw);
+                if (exist == null) {
+                    exist = EvaluationResult.builder()
+                            .evaluateMethodId(evaluationMethodId)
+                            .userId(userId)
+                            .modelId(modelId)
+                            .status("评测中")
+                            .build();
+                    evaluationResultMapper.insert(exist);
+                } else {
+                    exist.setStatus("评测中");
+                    exist.setUpdateTime(LocalDateTime.now());
+                    evaluationResultMapper.updateById(exist);
+                }
 
-                // 记录结束时间
+                try {
+                    // === (2) Pod 已存在就先删 ===
+                    Pod oldPod = K8sClient.pods().inNamespace("default").withName(containerName).get();
+                    if (oldPod != null) {
+                        log.warn("Pod {} 已存在，先删除再重建", containerName);
+                        K8sClient.pods().inNamespace("default").withName(containerName).delete();
+                        // 简单等一小会让 apiserver 清理（避免立刻 409）
+                        Thread.sleep(1500);
+                    }
+
+                    // === (3) 正式创建 Pod ===
+                    HasMetadata metadata = K8sClient.resource(streamForCreate).inNamespace("default").create();
+                    log.info("Pod {} 创建成功: {}", containerName, metadata.getMetadata().getName());
+
+                } catch (Exception e) {
+                    log.error("Pod {} 创建失败", containerName, e);
+                    exist.setStatus("失败");
+                    exist.setUpdateTime(LocalDateTime.now());
+                    evaluationResultMapper.updateById(exist);
+                    return;
+                }
+
                 long endTime = System.currentTimeMillis();
+                log.info("开启pod花费时间: {} 毫秒", (endTime - startTime));
 
-                // 评测任务开启到创建pod命令发出的时间
-                long executionTime = endTime - startTime;
-
-                System.out.println("开启pod花费时间: " + executionTime + " 毫秒");
                 watchStatus(userId, modelId, containerName);
             });
         }
     }
 
-    //监听接口1-持续监听指定的容器状态
+    @Override
     public void watchStatus(Long userId, Long modelId, String containerName) {
         final CountDownLatch closeLatch = new CountDownLatch(1);
-
-        // 新增：使用Map记录Pod关键状态的时间戳（避免重复记录）
         Map<String, Instant> statusTimestamps = new ConcurrentHashMap<>();
 
-        Watch watch = K8sClient.pods().inNamespace("default").withName(containerName).watch(new Watcher<Pod>() {
-            @Override
-            public void eventReceived(Action action, Pod pod) {
-                String phase = pod.getStatus().getPhase();
-                log.info("action: " + action +" phase：" + phase);
+        Watch watch = K8sClient.pods()
+                .inNamespace("default")
+                .withName(containerName)
+                .watch(new Watcher<Pod>() {
+
+                    @Override
+                    public void eventReceived(Action action, Pod pod) {
+                        String phase = pod.getStatus().getPhase();
+                        log.info("action: {} phase: {}", action, phase);
 
                 // 打印详细的 Pending 原因（用于调试）
                 if (phase.equals("Pending")) {
@@ -261,266 +258,251 @@ public class K8sImpl extends ServiceImpl<ContainerMapper, Container> implements 
                     }
                 }
 
-                // ==== 1. 记录Pod创建时间（全局起始时间） ====
-                Instant creationTime = Instant.parse(pod.getMetadata().getCreationTimestamp());
-                statusTimestamps.putIfAbsent("creationTime", creationTime);
+                        // 记录 creationTime
+                        statusTimestamps.putIfAbsent("creationTime",
+                                Instant.parse(pod.getMetadata().getCreationTimestamp()));
 
-                // ==== 2. 记录ContainerCreating开始时间（镜像拉取阶段） ====
-                if (phase.equals("Pending")) {
-                    // 获取容器状态列表（每个容器的详细状态）
-                    List<ContainerStatus> containerStatuses = pod.getStatus().getContainerStatuses();
-                    if (containerStatuses != null && !containerStatuses.isEmpty()) {
-                        for (ContainerStatus cs : containerStatuses) {
-                            // 检查容器是否处于等待状态（如创建中）
-                            if (cs.getState() != null && cs.getState().getWaiting() != null) {
-                                String waitingReason = cs.getState().getWaiting().getReason();
-                                if ("ContainerCreating".equals(waitingReason)) { // 直接匹配容器创建状态
-                                    statusTimestamps.putIfAbsent("containerCreatingStart", Instant.now());
-                                    log.info("容器 {} 进入创建状态（ContainerCreating），时间戳记录成功", cs.getName());
-                                    break; // 找到后退出，避免重复处理
+                        // Pending -> ContainerCreating
+                        if ("Pending".equals(phase)) {
+                            List<ContainerStatus> css = pod.getStatus().getContainerStatuses();
+                            if (css != null) {
+                                for (ContainerStatus cs : css) {
+                                    if (cs.getState() != null && cs.getState().getWaiting() != null) {
+                                        if ("ContainerCreating".equals(cs.getState().getWaiting().getReason())) {
+                                            statusTimestamps.putIfAbsent("containerCreatingStart", Instant.now());
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                         }
-                    }
-                }
 
-                // ==== 3. 记录Running时间（镜像拉取结束，执行开始） ====
-                if (phase.equals("Running") && !statusTimestamps.containsKey("runningTime")) {
-                    Instant runningTime = Instant.now();
-                    log.info("Pod {} 进入运行状态", containerName);
-                    statusTimestamps.put("runningStart", runningTime);
-                }
+                        // Running
+                        if ("Running".equals(phase)) {
+                            statusTimestamps.putIfAbsent("runningStart", Instant.now());
+                        }
 
-                // ==== 4. 记录Succeeded时间（执行结束） ====
-                if (phase.equals("Succeeded") && !statusTimestamps.containsKey("succeededTime")) {
-                    // 仅执行一次（避免重复触发）
-                    if (!statusTimestamps.containsKey("succeededStart")) {
-                        statusTimestamps.put("succeededStart", Instant.now());
-                        log.info("Pod {} 运行完成（状态：{}），开始获取监控日志...", containerName, phase);
+                        // === 关键：Succeeded / Failed 都处理 ===
+                        if (("Succeeded".equals(phase) || "Failed".equals(phase))
+                                && !statusTimestamps.containsKey("finishStart")) {
 
-                        try {
-                            // 获取监控容器的日志
-                            String monitorLogs = K8sClient.pods()
-                                    .inNamespace("default")
-                                    .withName(containerName)
-                                    .inContainer(containerName)
-                                    .getLog();
+                            statusTimestamps.put("finishStart", Instant.now());
+                            log.info("Pod {} 结束，phase={}", containerName, phase);
 
-                            if (monitorLogs != null && !monitorLogs.isEmpty()) {
-                                log.info("监控容器日志:\n{}", monitorLogs);
-                                // 解析日志并存储监控结果（调用你的解析方法）
-                                parseMonitorResults(monitorLogs, containerName);
+                            try {
+                                String logs = K8sClient.pods()
+                                        .inNamespace("default")
+                                        .withName(containerName)
+                                        .inContainer(containerName)
+                                        .getLog();
+                                if (logs != null && !logs.isEmpty()) {
+                                    parseMonitorResults(logs, containerName);
+                                }
+                            } catch (Exception e) {
+                                log.error("获取监控日志失败: {}", containerName, e);
+                            }
+
+                            try {
+                                recordPodTime(containerName, statusTimestamps);
+                            } catch (Exception e) {
+                                log.error("记录Pod时间失败", e);
+                            }
+
+                            // === 更新 evaluation_result 最终状态 ===
+                            updateEvaluationResultFinalStatus(containerName, phase);
+
+                            // === Pod 完成后删除，释放资源，同时触发 DELETED 让 watch 关闭 ===
+                            deleteSingle(userId, containerName);
+                        }
+
+                        // container 表更新（Running / Succeeded / Failed 都更新）
+                        if (action == Action.ADDED || action == Action.MODIFIED) {
+                            Container c = Container.builder()
+                                    .containerName(containerName)
+                                    .nameSpace(pod.getMetadata().getNamespace())
+                                    .status(phase)
+                                    .restarts(0)
+                                    .AGE(String.valueOf(Duration.between(
+                                            OffsetDateTime.parse(pod.getMetadata().getCreationTimestamp()).toInstant(),
+                                            Instant.now()).getSeconds()))
+                                    .nodeName(pod.getStatus().getNominatedNodeName())
+                                    .imageId(0L)
+                                    .modelId(modelId)
+                                    .updateTime(LocalDateTime.now())
+                                    .build();
+
+                            Container existC = containerMapper.selectOne(
+                                    new LambdaQueryWrapper<Container>()
+                                            .eq(Container::getContainerName, containerName)
+                            );
+                            if (existC != null) {
+                                containerMapper.update(c,
+                                        new LambdaQueryWrapper<Container>()
+                                                .eq(Container::getContainerName, containerName));
                             } else {
-                                log.warn("未获取到监控容器日志");
+                                containerMapper.insert(c);
                             }
-                        } catch (Exception e) {
-                            log.error("获取监控日志失败，Pod名称：{}", containerName, e);
                         }
-                        // 记录时间监控信息（原有逻辑）
-                        try {
-                            recordPodTime(containerName, statusTimestamps);
-                        } catch (JsonProcessingException e) {
-                            log.error("记录Pod时间信息失败", e);
+
+                        if (action == Action.DELETED) {
+                            closeLatch.countDown();
                         }
                     }
-                }
 
-
-                Container container = Container.builder()
-                        .containerName(containerName)
-                        .nameSpace(pod.getMetadata().getNamespace())
-                        .status(pod.getStatus().getPhase())
-                        .restarts(0)
-                        .AGE(String.valueOf(Duration.between(
-                                OffsetDateTime.parse(pod.getMetadata().getCreationTimestamp()).toInstant(),
-                                Instant.now()).getSeconds()))
-                        .nodeName(pod.getStatus().getNominatedNodeName())
-                        .imageId(0L)
-                        .modelId(modelId)
-                        .updateTime(LocalDateTime.now())
-                        .build();
-
-                switch (action) {
-                    case ADDED:
-                    case MODIFIED: {
-                        if(phase.equals("Running")) {
-                            log.info("启动接口：已启动的Pod名称-" + containerName);
-                            //2.保存容器实例到mysql中
-                            Container existContainer = containerMapper.selectOne(new LambdaQueryWrapper<Container>()
-                                    .eq(Container::getContainerName, containerName));
-                            if(existContainer != null) {
-                                //如果当前容器实例已存在，则更新
-                                containerMapper.update(container, new LambdaQueryWrapper<Container>()
-                                        .eq(Container::getContainerName, containerName));
-                            }else {
-                                //如果当前容器实例不存在，则插入一条新的容器实例
-                                containerMapper.insert(container);
-                            }
-//                        } else if (phase.equals("Succeeded") || phase.equals("Failed")) {
-                        } else if (phase.equals("Succeeded")) {
-//                            latch.countDown();
-//                            deleteSingle(userId, containerName);
-                            Container existContainer = containerMapper.selectOne(new LambdaQueryWrapper<Container>()
-                                    .eq(Container::getContainerName, containerName));
-                            if(existContainer != null) {
-                                //如果当前容器实例已存在，则更新
-                                containerMapper.update(container, new LambdaQueryWrapper<Container>()
-                                        .eq(Container::getContainerName, containerName));
-                            }else {
-                                //如果当前容器实例不存在，则插入一条新的容器实例
-                                containerMapper.insert(container);
-                            }
-                        }
-                        break;
-                    }
-                    case DELETED: {
+                    @Override
+                    public void onClose(WatcherException cause) {
                         closeLatch.countDown();
-                        break;
                     }
-                }
-            }
+                });
 
-            @Override
-            public void onClose(WatcherException cause) {
-
-            }
-        });
         try {
             closeLatch.await();
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
         } finally {
             watch.close();
         }
     }
 
-    //监听接口2-只输出一次容器的状态
-    public String getStatus(String containerName) {
-        String name = containerMapper.getStatusByContainerName(containerName);
-        if (name == null)
-            return containerName+"容器不存在";
-        return name;
+    private void updateEvaluationResultFinalStatus(String podName, String phase) {
+        Long modelId = Long.parseLong(podName.split("-")[1]);
+        String evaluateMethod = podName.split("-")[2];
+
+        EvaluationMethod method = evaluationMethodMapper.selectOne(
+                new QueryWrapper<EvaluationMethod>().eq("methodName", evaluateMethod)
+        );
+
+        LambdaQueryWrapper<EvaluationResult> qw = new LambdaQueryWrapper<>();
+        qw.eq(EvaluationResult::getModelId, modelId)
+                .eq(EvaluationResult::getEvaluateMethodId, method.getId());
+
+        EvaluationResult er = evaluationResultMapper.selectOne(qw);
+        if (er != null) {
+            er.setStatus("Succeeded".equals(phase) ? "成功" : "失败");
+            er.setUpdateTime(LocalDateTime.now());
+            evaluationResultMapper.updateById(er);
+        }
     }
 
-    //回收接口2-删除用户的单个容器
+    @Override
     public void deleteSingle(Long userId, String containerName) {
         K8sClient.pods().inNamespace("default").withName(containerName).delete();
-        log.info("回收接口：已删除Pod-" + containerName);
+        log.info("回收接口：已删除Pod-{}", containerName);
     }
 
+    @Override
+    public String getStatus(String containerName) {
+        String name = containerMapper.getStatusByContainerName(containerName);
+        return name == null ? containerName + "容器不存在" : name;
+    }
 
+    @Override
     public List<String> getContainersByModelId(Long modelId) {
         return containerMapper.getContainerNameByModelId(modelId);
     }
 
-    // 解析监控时间并存入到数据库当中
+    // ===== 原有 recordPodTime / parseMonitorResults / calculatePodResourceFromModel 不变 =====
+
     public void recordPodTime(String containerName, Map<String, Instant> statusTimestamps) throws JsonProcessingException {
         Instant containerCreatingStart = statusTimestamps.get("containerCreatingStart");
         Instant runningStart = statusTimestamps.get("runningStart");
-        Instant succeededStart = statusTimestamps.get("succeededStart");
-        Long createImageTime = 0L;
+        Instant finishStart = statusTimestamps.get("finishStart");
+
         Long containerCreatingTime = 0L;
         Long runningTime = 0L;
+
         if (containerCreatingStart != null && runningStart != null) {
             containerCreatingTime = Duration.between(containerCreatingStart, runningStart).toMillis();
-            log.info("Pod {} 拉取镜像耗时：{}ms", containerName, containerCreatingTime);
         }
-        if(succeededStart != null){
-            runningTime = Duration.between(runningStart, succeededStart).toMillis();
-            log.info("Pod {} 执行耗时：{}ms", containerName, runningTime);
+        if (runningStart != null && finishStart != null) {
+            runningTime = Duration.between(runningStart, finishStart).toMillis();
         }
-        Long modelId = Long.parseLong(containerName.split("-")[1]);
 
+        Long modelId = Long.parseLong(containerName.split("-")[1]);
         String evaluateMethod = containerName.split("-")[2];
-        QueryWrapper<EvaluationMethod> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("methodName", evaluateMethod);
-        EvaluationMethod evaluationMethod = evaluationMethodMapper.selectOne(queryWrapper);
+
+        EvaluationMethod evaluationMethod = evaluationMethodMapper.selectOne(
+                new QueryWrapper<EvaluationMethod>().eq("methodName", evaluateMethod)
+        );
         Long evaluationMethodId = evaluationMethod.getId();
 
-        if(modelId != null){
-            ModelEvaluation modelEvaluation = modelEvaluationMapper.selectOne(new LambdaQueryWrapper<ModelEvaluation>()
-                    .eq(ModelEvaluation::getModelId, modelId));
-            if(modelEvaluation != null){
-                createImageTime = modelEvaluation.getCreateImageTime();
-            }
-            Long totalTime = createImageTime + containerCreatingTime + runningTime;
+        Long createImageTime = 0L;
+        ModelEvaluation modelEvaluation = modelEvaluationMapper.selectOne(
+                new LambdaQueryWrapper<ModelEvaluation>().eq(ModelEvaluation::getModelId, modelId)
+        );
+        if (modelEvaluation != null) {
+            createImageTime = modelEvaluation.getCreateImageTime();
+        }
 
-            EvaluationResultTimeUse evaluationResultTimeUse = EvaluationResultTimeUse.builder()
-                    .totalTime(totalTime)
-                    .createImageTime(createImageTime)
-                    .containerCreatingTime(containerCreatingTime)
-                    .runningTime(runningTime)
-                    .build();
-            ObjectMapper objectMapper = new ObjectMapper();
-            String timeUse = objectMapper.writeValueAsString(evaluationResultTimeUse);
+        Long totalTime = createImageTime + containerCreatingTime + runningTime;
 
-            LambdaQueryWrapper<EvaluationResult> queryWrapper2 = new LambdaQueryWrapper<>();
-            queryWrapper2.eq(EvaluationResult::getModelId, modelId)
-                    .eq(EvaluationResult::getEvaluateMethodId, evaluationMethodId);
+        EvaluationResultTimeUse timeUseObj = EvaluationResultTimeUse.builder()
+                .totalTime(totalTime)
+                .createImageTime(createImageTime)
+                .containerCreatingTime(containerCreatingTime)
+                .runningTime(runningTime)
+                .build();
 
-            EvaluationResult evaluationResult = evaluationResultMapper.selectOne(queryWrapper2);
+        String timeUse = new ObjectMapper().writeValueAsString(timeUseObj);
 
-            evaluationResult.setTimeUse(timeUse);
-            evaluationResultMapper.updateById(evaluationResult);
+        LambdaQueryWrapper<EvaluationResult> qw = new LambdaQueryWrapper<>();
+        qw.eq(EvaluationResult::getModelId, modelId)
+                .eq(EvaluationResult::getEvaluateMethodId, evaluationMethodId);
+
+        EvaluationResult er = evaluationResultMapper.selectOne(qw);
+        if (er != null) {
+            er.setTimeUse(timeUse);
+            evaluationResultMapper.updateById(er);
         }
     }
 
-    // 解析监控日志内容并更新到数据库当中
-    public void parseMonitorResults(String monitorLogs, String podName){
-
+    public void parseMonitorResults(String monitorLogs, String podName) {
         Long modelId = Long.parseLong(podName.split("-")[1]);
         String evaluateMethod = podName.split("-")[2];
-        QueryWrapper<EvaluationMethod> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("methodName", evaluateMethod);
-        EvaluationMethod evaluationMethod = evaluationMethodMapper.selectOne(queryWrapper);
-        Long evaluationMethodId = evaluationMethod.getId();
 
-        LambdaQueryWrapper<EvaluationResult> queryWrapper2 = new LambdaQueryWrapper<>();
-        queryWrapper2.eq(EvaluationResult::getModelId, modelId)
-                .eq(EvaluationResult::getEvaluateMethodId, evaluationMethodId);
-        EvaluationResult evaluationResult = evaluationResultMapper.selectOne(queryWrapper2);
+        EvaluationMethod method = evaluationMethodMapper.selectOne(
+                new QueryWrapper<EvaluationMethod>().eq("methodName", evaluateMethod)
+        );
+
+        LambdaQueryWrapper<EvaluationResult> qw = new LambdaQueryWrapper<>();
+        qw.eq(EvaluationResult::getModelId, modelId)
+                .eq(EvaluationResult::getEvaluateMethodId, method.getId());
+
+        EvaluationResult er = evaluationResultMapper.selectOne(qw);
+        if (er == null) return;
 
         for (String line : monitorLogs.split("\n")) {
             if (line.contains("评测任务最大内存占用")) {
-                // 匹配数字部分（支持整数和小数，如1021.00或201）
                 String mem = line.split(":")[1].split(" ")[0];
-                // 转换为Long（注意：小数会丢失精度，如需保留小数可改用Double）
-                evaluationResult.setCpuMemoryUse(Long.parseLong(mem));
-                log.info("解析到最大内存占用: {}", mem);
+                er.setCpuMemoryUse(Long.parseLong(mem));
             } else if (line.contains("评测任务最大显存占用")) {
                 String gpuMem = line.split(":")[1].split(" ")[0];
-                evaluationResult.setGpuMemoryUse(Long.parseLong(gpuMem));
-                log.info("解析到最大显存占用: {}", gpuMem);
+                er.setGpuMemoryUse(Long.parseLong(gpuMem));
             }
         }
-        evaluationResultMapper.updateById(evaluationResult);
+        evaluationResultMapper.updateById(er);
     }
 
     @Override
-    // 从用户填入的模型运行需要的资源信息计算模型评测开启的pod的资源信息
-    public ResourceConfig calculatePodResourceFromModel(ModelMessage modelMessage){
-
-        // 获取到具体的资源信息
+    public ResourceConfig calculatePodResourceFromModel(ModelMessage modelMessage) {
         String resourceConfigStr = modelMessage.getResourceConfig();
         ResourceConfig resourceConfig = JSONUtil.toBean(resourceConfigStr, ResourceConfig.class);
-        Integer gpuNumRequired = resourceConfig.getGpuNumRequired();
-        Integer gpuMemoryRequired = resourceConfig.getGpuMemoryRequired();
-        Integer gpuCoreRequired = resourceConfig.getGpuCoreRequired();
 
-        // 计算pod相关yaml文件中limits资源
-        Integer gpuMemoryLimits = gpuMemoryRequired + evaluationGpuMemory;
-        Integer gpuCoreLimits = gpuCoreRequired + evaluationGpuCore;
-        Integer gpuNumLimits = gpuNumRequired + evaluationGpuNum;
+        Integer gpuMemoryLimits = resourceConfig.getGpuMemoryRequired() + evaluationGpuMemory;
+        Integer gpuCoreLimits = resourceConfig.getGpuCoreRequired() + evaluationGpuCore;
+        Integer gpuNumLimits = resourceConfig.getGpuNumRequired() + evaluationGpuNum;
 
-        // 返回
-        ResourceConfig podResourceLimits = ResourceConfig.builder()
+        return ResourceConfig.builder()
                 .gpuMemoryRequired(gpuMemoryLimits)
                 .gpuCoreRequired(gpuCoreLimits)
                 .gpuNumRequired(gpuNumLimits)
                 .build();
-
-        return podResourceLimits;
     }
 
+    // 旧 init() 不用可留空
+    @Override
+    public List<ByteArrayInputStream> init(Long userId, Map<String, String> imageUrl, Map<String, Map> imageParam) {
+        return List.of();
+    }
 
 }

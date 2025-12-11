@@ -40,7 +40,7 @@ import java.util.concurrent.Future;
 
 import static com.example.secaicontainerengine.common.ErrorCode.SYSTEM_ERROR;
 import static com.example.secaicontainerengine.util.FileUtils.*;
-import static com.example.secaicontainerengine.util.FileUtils.generateEvaluationYamlConfigs;
+import static com.example.secaicontainerengine.util.FileUtils.generateDetectionEvaluationYaml;
 
 @RestController
 @RequestMapping("/file")
@@ -271,14 +271,16 @@ public class FileController {
                 String configsPath = modelSavePath + "/" + "evaluationConfigs";
                 // 根据任务类型选择合适的配置生成方法
                 log.info("任务类型: {}", evaluationConfig.getTask());
-/*                if ("classification".equals(evaluationConfig.getTask())) {
+                if ("classification".equals(evaluationConfig.getTask())) {
                     log.info("使用classification专用模板生成配置文件");
                     FileUtils.generateClassificationEvaluationYaml(evaluationConfig, businessConfig, configsPath);
+                } else if ("detection".equals(evaluationConfig.getTask())) {
+                    log.info("使用detection专用模板生成配置文件");
+                    generateDetectionEvaluationYaml(evaluationConfig, businessConfig, configsPath);
                 } else {
-                    log.info("使用通用模板生成配置文件");
-                    generateEvaluationYamlConfigs(evaluationConfig, businessConfig, configsPath);
-                }*/
-                generateEvaluationYamlConfigs(evaluationConfig, businessConfig, configsPath);
+                    log.error("不支持的任务类型: {}", evaluationConfig.getTask());
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的任务类型: " + evaluationConfig.getTask());
+                }
                 log.info("文件处理完成");
 
             } catch (Exception e) {

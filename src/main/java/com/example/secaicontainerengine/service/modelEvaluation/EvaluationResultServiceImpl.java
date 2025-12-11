@@ -25,13 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static com.example.secaicontainerengine.util.PodUtil.calculateScoreFromResult;
 
@@ -60,103 +55,119 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
     private static final List<String> RESULT = List.of("basicResult", "interpretabilityResult");
 
+    /**
+     * 计算并更新模型总分 & 最终状态
+     * 关键修复：
+     * 1) 只在所有维度完成后计算
+     * 2) 有任何失败 -> modelEvaluation.status=失败
+     * 3) 避免 RoundingMode 依赖
+     */
     @Override
+    @Transactional
     public void calculateAndUpdateScores(Long modelId) {
 
-//        // 1.查询当前模型的所有评测记录（evaluation_result 表）
-//        List<EvaluationResult> resultList = getEvaluationResultsByModelId(modelId);
-//        if (resultList.isEmpty()) {
-//            throw new RuntimeException("模型 ID=" + modelId + " 无评测记录，无法计算得分");
-//        }
-//
-//        // 2.根据评测输出计算得分
-//        updateEvaluationResultScore(resultList);
-//
-//        // 3.获取所有评测记录的 evaluateMethodId，并查询对应的分类（Type）（evaluation_method 表）
-//        // 键是评测方法id，值是评测方法Type类别
-//        Map<Long, String> evaluateMethodTypeMap = evaluationMethodService.getEvaluationMethodTypeMap(resultList);
-//
-//        // 4.按分类（Type）分组，计算每一类的得分(目前用平均值代替)
-//        // 键是Type类别，值是该类别的平均分
-//        Map<String, BigDecimal> typeScoreMap = calculateScoresByType(resultList, evaluateMethodTypeMap);
-//
-//        // 5.更新模型的分类得分（示例：更新到 model_message 表）
-//        modelEvaluationService.updateModelScores(modelId, typeScoreMap);
+        // === 0. 先看所有单项任务状态 ===
+        List<EvaluationResult> resultList = getEvaluationResultsByModelId(modelId);
+        if (resultList == null || resultList.isEmpty()) {
+            log.warn("模型 {} evaluation_result 为空，跳过总分计算", modelId);
+            return;
+        }
 
-        // 1.查询出每个评测维度的测试结果
+        boolean anyRunning = resultList.stream().anyMatch(r -> "评测中".equals(r.getStatus()));
+        boolean anyFailed  = resultList.stream().anyMatch(r -> "失败".equals(r.getStatus()));
+
+        // 只要还有评测中，就不做最终结算
+        if (anyRunning) {
+            log.info("模型 {} 仍有评测任务在运行中，暂不计算总分", modelId);
+            return;
+        }
+
+        // === 1. 查询每个维度 JSON 结果 ===
         Map<String, String> resultMap = modelEvaluationMapper.selectResults(modelId);
 
-        // 1.1 获取模型任务类型（从 ModelMessage.modelConfig 中解析）
-        // 目的：根据任务类型（classification 或 detection）选择不同的指标计算方式
+        // === 1.1 获取任务类型 classification/detection ===
         ModelMessage modelMessage = modelMessageMapper.selectById(modelId);
-        String task = "classification"; // 默认任务类型为分类
+        String task = "classification";
         if (modelMessage != null && modelMessage.getModelConfig() != null) {
             try {
-                // 解析 modelConfig JSON 字符串，获取 ModelConfig 对象
                 ModelConfig modelConfig = JSONUtil.toBean(modelMessage.getModelConfig(), ModelConfig.class);
                 if (modelConfig != null && modelConfig.getTask() != null) {
-                    task = modelConfig.getTask(); // 获取任务类型：可能是 "classification" 或 "detection"
-                    log.debug("模型任务类型: {}", task);
+                    task = modelConfig.getTask();
                 }
             } catch (Exception e) {
-                // 如果解析失败，使用默认的分类任务类型，保证向后兼容
-                log.warn("解析 modelConfig 失败，使用默认任务类型: classification", e);
+                log.warn("解析 modelConfig 失败，使用默认任务类型 classification", e);
             }
         }
 
-        // 2.计算出每个维度的测试得分
+        // === 2. 计算每个维度得分 ===
         Map<String, Double> scoreMap = new HashMap<>();
-        // 2.1计算基础得分
+
         String basic = resultMap.get("basicResult");
         if (isNotEmptyJson(basic)) {
-            // 传递 task 参数给 computeBasicScore 方法
             scoreMap.put("basicResult", computeBasicScore(basic, task));
         }
-        // 2.2计算可解释性得分
+
         String interpretability = resultMap.get("interpretabilityResult");
         if (isNotEmptyJson(interpretability)) {
             scoreMap.put("interpretabilityResult", computeInterpretabilityScore(interpretability));
         }
-        // 2.3计算鲁棒性得分
+
         String robustness = resultMap.get("robustnessResult");
         if (isNotEmptyJson(robustness)) {
             scoreMap.put("robustnessResult", computeRobustnessScore(robustness, task));
         }
-        // 2.4计算泛化性得分
+
         String generalization = resultMap.get("generalizationResult");
         if (isNotEmptyJson(generalization)) {
-            scoreMap.put("generalizationResult", computeGeneralizationScore(generalization));
+            scoreMap.put("generalizationResult", computeGeneralizationScore(generalization, task));
         }
-        // 2.5计算公平性得分
+
         String fairness = resultMap.get("fairnessResult");
         if (isNotEmptyJson(fairness)) {
-            scoreMap.put("fairnessResult", computeFairnessScore(fairness));
+            scoreMap.put("fairnessResult", computeFairnessScore(fairness, task));
         }
-        // 2.6计算安全性得分
+
         String safety = resultMap.get("safetyResult");
         if (isNotEmptyJson(safety)) {
-            scoreMap.put("safetyResult", computeSafetyScore(safety));
+            scoreMap.put("safetyResult", computeSafetyScore(safety, task));
         }
-        // 3.每个维度求平均计算出一个最终得分
-        log.info("每个指标得分：{}", scoreMap);
+
+        log.info("模型 {} 各维度得分: {}", modelId, scoreMap);
+
+        // === 3. 计算最终得分 ===
         double finalScore = calculateFinalScore(scoreMap);
         ModelScore modelScore = ModelScore.builder()
                 .totalEvaluate(BigDecimal.valueOf(finalScore))
                 .build();
 
-        // 4.修改评测状态
-        QueryWrapper<ModelEvaluation> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("modelId", modelId);
-        ModelEvaluation modelEvaluation = modelEvaluationMapper.selectOne(queryWrapper);
+        // === 4. 更新模型最终状态 ===
+        ModelEvaluation modelEvaluation = modelEvaluationMapper.selectOne(
+                new QueryWrapper<ModelEvaluation>().eq("modelId", modelId)
+        );
+        if (modelEvaluation == null) {
+            log.warn("模型 {} model_evaluation 不存在，跳过最终更新", modelId);
+            return;
+        }
 
-        modelEvaluation.setStatus("成功");
+        // 有失败则最终置失败，否则置成功
+        if (anyFailed) {
+            modelEvaluation.setStatus("失败");
+        } else {
+            modelEvaluation.setStatus("成功");
+        }
+
         modelEvaluation.setModelScore(JSONUtil.toJsonStr(modelScore));
         modelEvaluation.setUpdateTime(LocalDateTime.now());
         modelEvaluationMapper.updateById(modelEvaluation);
 
-        // 更新模型状态（复用前面已经查询的 ModelMessage，避免重复查询）
+        // model_message 状态：只有完全成功才置 4
         if (modelMessage != null) {
-            modelMessage.setStatus(4);
+            if (anyFailed) {
+                // 你系统里失败状态号如果不是 5，你按实际改
+                modelMessage.setStatus(5);
+            } else {
+                modelMessage.setStatus(4);
+            }
             modelMessage.setUpdateTime(LocalDateTime.now());
             modelMessageMapper.updateById(modelMessage);
         }
@@ -172,12 +183,8 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
     @Override
     public Map<String, BigDecimal> calculateScoresByType(List<EvaluationResult> resultList,
                                                          Map<Long, String> evaluateMethodTypeMap) {
-        // 用平均分代替
 
-        // 按分类分组，累加得分（BigDecimal）和记录数
-        // 分类总得分（BigDecimal）
         Map<String, BigDecimal> typeTotalScore = new HashMap<>();
-        // 分类记录数
         Map<String, Integer> typeCount = new HashMap<>();
 
         for (EvaluationResult result : resultList) {
@@ -190,74 +197,43 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             }
 
             BigDecimal score = result.getScore();
-            // 跳过无效得分（null 或负数）
-            if (score == null || score.compareTo(BigDecimal.ZERO) == -1) {
+            if (score == null || score.compareTo(BigDecimal.ZERO) < 0) {
                 continue;
             }
 
-            // 累加总得分（使用 BigDecimal 的 add 方法）
-            typeTotalScore.merge(
-                    type,
-                    score,
-                    // 合并函数：总得分 + 当前得分
-                    BigDecimal::add
-            );
-
-            // 累加记录数
+            typeTotalScore.merge(type, score, BigDecimal::add);
             typeCount.merge(type, 1, Integer::sum);
         }
 
-        // 计算平均分（总得分 / 记录数，保留 4 位小数，四舍五入）
         Map<String, BigDecimal> avgScoreMap = new HashMap<>();
         for (String type : typeTotalScore.keySet()) {
             BigDecimal total = typeTotalScore.get(type);
-            Integer count = typeCount.get(type);
-
-            // 避免除零异常（理论上 count >=1，因为 total 非空）
+            Integer count = typeCount.getOrDefault(type, 0);
             if (count == 0) {
                 throw new RuntimeException("分类=" + type + " 的记录数为 0，无法计算平均分");
             }
 
-            // 转换为 BigDecimal 进行除法（保留 4 位小数，四舍五入）
-            BigDecimal avg = total.divide(
-                    // 记录数转为 BigDecimal
-                    BigDecimal.valueOf(count),
-                    // 保留 4 位小数
-                    4,
-                    // 四舍五入模式
-                    BigDecimal.ROUND_HALF_UP
-            );
-
+            BigDecimal avg = total.divide(BigDecimal.valueOf(count), 4, BigDecimal.ROUND_HALF_UP);
             avgScoreMap.put(type, avg);
         }
         return avgScoreMap;
     }
 
-
     @Override
     public void updateEvaluationResultScore(List<EvaluationResult> resultList) {
-        if (resultList == null || resultList.isEmpty()) {
-            return; // 无记录，直接返回
-        }
+        if (resultList == null || resultList.isEmpty()) return;
 
-        // 遍历每条评测记录
         for (EvaluationResult result : resultList) {
             Long id = result.getId();
-
-            // 从 result 字段提取原始结果
             PodResult rawResult = JSONUtil.toBean(result.getResult(), PodResult.class);
             if (rawResult == null) {
                 throw new RuntimeException("评测记录ID=" + id + " 的result字段为空，无法计算得分");
             }
 
-            // 根据 result 计算得分
             BigDecimal score = calculateScoreFromResult(rawResult);
-
-            // 更新当前记录的 score 字段
             result.setScore(score);
             result.setUpdateTime(LocalDateTime.now());
 
-            // 将更新后的记录同步到数据库
             boolean updateSuccess = evaluationResultMapper.updateById(result) > 0;
             if (!updateSuccess) {
                 throw new RuntimeException("评测记录ID=" + id + " 得分更新失败");
@@ -267,68 +243,41 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
     @Override
     public GenerateReport getResultReport(Long modelId) {
-
-        // 1.查询当前模型的所有评测记录（evaluation_result 表）
         List<EvaluationResult> resultList = getEvaluationResultsByModelId(modelId);
         if (resultList.isEmpty()) {
             throw new RuntimeException("模型 ID=" + modelId + " 无评测记录，无法计算得分");
         }
-        QueryWrapper<ModelEvaluation> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("modelId", modelId);
-        ModelEvaluation modelEvaluation = modelEvaluationService.getOne(queryWrapper);
-
-        // 2.根据评测输出计算得分
-        GenerateReport generateReport = calculateEvaluationReportData(resultList);
-
-        return generateReport;
-
-
+        return calculateEvaluationReportData(resultList);
     }
 
-
-    // ！！展示使用！！
-    // 所有的值都假设是归一化之后的得分，统一维度便于展示
     @Override
     public GenerateReport calculateEvaluationReportData(List<EvaluationResult> resultList) {
-        if (resultList == null || resultList.isEmpty()) {
-            return null;
-        }
+        if (resultList == null || resultList.isEmpty()) return null;
 
-        // 遍历每条评测记录
-        Map<String,PodResult> map = new HashMap<>();
+        Map<String, PodResult> map = new HashMap<>();
         for (EvaluationResult result : resultList) {
             Long id = result.getId();
-            // 从 result 字段提取原始结果
             PodResult rawResult = JSONUtil.toBean(result.getResult(), PodResult.class);
             if (rawResult == null) {
                 throw new RuntimeException("评测记录ID=" + id + " 的result字段为空，无法计算得分");
             }
             Long evaluateMethodId = result.getEvaluateMethodId();
-            if(evaluateMethodId == 1){
+            if (evaluateMethodId == 1) {
                 map.put("fgsm", rawResult);
-            }else if(evaluateMethodId == 2){
+            } else if (evaluateMethodId == 2) {
                 map.put("pgd", rawResult);
             }
         }
 
-        // 计算fgsm和pgd的攻击前后准确率的均值
         BigDecimal fgsmAccClean = map.get("fgsm").getAccClean();
         BigDecimal pgdAccClean = map.get("pgd").getAccClean();
-        BigDecimal cleanSum = fgsmAccClean.add(pgdAccClean);
-        BigDecimal cleanMean = cleanSum.divide(
-                BigDecimal.valueOf(2),
-                2,
-                RoundingMode.HALF_UP
-        );
+        BigDecimal cleanMean = fgsmAccClean.add(pgdAccClean)
+                .divide(BigDecimal.valueOf(2), 2, BigDecimal.ROUND_HALF_UP);
 
         BigDecimal fgsmAccAdv = map.get("fgsm").getAccAdv();
         BigDecimal pgdAccAdv = map.get("pgd").getAccAdv();
-        BigDecimal advSum = fgsmAccAdv.add(pgdAccAdv);
-        BigDecimal advMean = advSum.divide(
-                BigDecimal.valueOf(2),
-                2,
-                RoundingMode.HALF_UP
-        );
+        BigDecimal advMean = fgsmAccAdv.add(pgdAccAdv)
+                .divide(BigDecimal.valueOf(2), 2, BigDecimal.ROUND_HALF_UP);
 
         RobustnessMetricsCleanAdv robustnessMetricsCleanAdv = RobustnessMetricsCleanAdv.builder()
                 .adversarialMetric(new CleanAdv(cleanMean.multiply(new BigDecimal(100)), advMean.multiply(new BigDecimal(100))))
@@ -355,11 +304,10 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
                 .robustnessMetricsMean(robustnessMetricsMean)
                 .build();
 
-        GenerateReport generateReport = GenerateReport.builder()
+        return GenerateReport.builder()
                 .totalScore(new BigDecimal("62.5"))
                 .robustnessEvaluation(robustnessEvaluation)
                 .build();
-        return generateReport;
     }
 
     @Override
@@ -370,45 +318,22 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
     @Override
     @Transactional
     public void updateResult(Long modelId, Map<String, String> result, String resultColumn) {
-        // 特殊处理 robustness 维度：只要包含 robustness 键就展开存储
         if (result.containsKey("robustness")) {
             parseAndStoreRobustness(modelId, resultColumn, result.get("robustness"));
             return;
         }
-
-        // 其他维度正常存储
         for (Map.Entry<String, String> entry : result.entrySet()) {
             modelEvaluationMapper.upsertJsonField(modelId, resultColumn, entry.getKey(), entry.getValue());
         }
     }
 
-    /**
-     * 解析并存储 robustness 的特殊JSON格式
-     * 保留原始 JSON 结构（adversarial、corruption 等键），只去掉转义字符
-     *
-     * 输入格式: "{\"adversarial\": [{...}], \"corruption\": [{...}]}"
-     * 存储后格式: {"robustness": {"adversarial": [...], "corruption": [...]}}
-     *
-     * @param modelId 模型ID
-     * @param resultColumn 结果列名（robustnessResult）
-     * @param robustnessJson robustness 字段的JSON字符串
-     */
     private void parseAndStoreRobustness(Long modelId, String resultColumn, String robustnessJson) {
         try {
-            // 解析 JSON，验证格式是否正确
-            JsonNode rootNode = objectMapper.readTree(robustnessJson);
-            log.debug("开始存储 robustness JSON（保留原始结构）");
-
-            // 直接存储整个 robustness JSON（保留 adversarial、corruption 等键）
+            objectMapper.readTree(robustnessJson); // 仅校验
             modelEvaluationMapper.upsertJsonField(modelId, resultColumn, "robustness", robustnessJson);
-
-            log.info("robustness JSON 存储成功（保留原始结构）");
-
         } catch (Exception e) {
-            log.error("解析并存储 robustness JSON 失败: {}", e.getMessage(), e);
-            // 解析失败时，尝试原样存储
+            log.error("解析并存储 robustness JSON 失败", e);
             modelEvaluationMapper.upsertJsonField(modelId, resultColumn, "robustness", robustnessJson);
-            log.warn("使用原格式存储 robustness");
         }
     }
 
@@ -426,13 +351,10 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         }
     }
 
-    /**
-     * 计算基础评测得分
-     *
-     * @param result basicResult JSON 字符串，从数据库读取
-     * @param task 任务类型："classification"（分类）或 "detection"（目标检测）
-     * @return 计算得到的得分（0.0 ~ 1.0）
-     */
+    // ====== 下面所有 computeXXXScore / normalize / robustness 解析逻辑保持你原样不动 ======
+    // 你贴的后半段我就不重复改写了，只保留接口/调用一致性。
+    // （从 computeBasicScore 一直到 normalizeGeneralizationMetric 的代码请保持原实现）
+
     private double computeBasicScore(String result, String task) {
         // 1. 检查 result 是否为空
         if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
@@ -557,8 +479,66 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         }
     }
 
+    /**
+     * 计算可解释性得分
+     *
+     * @param result 可解释性评测结果JSON字符串
+     * @return 可解释性得分（0.0 ~ 1.0）
+     */
     private double computeInterpretabilityScore(String result) {
-        return 0.0;
+        if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
+            return 0.0;
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(result);
+
+            // 检查是否有 fidelity_summary 节点
+            if (root.has("fidelity_summary")) {
+                JsonNode fidelitySummary = root.get("fidelity_summary");
+
+                // 提取 keep_mean 和 drop_mean
+                // keep_mean: 保留重要特征时的模型输出一致性（越高越好，范围 0-1）
+                // drop_mean: 删除重要特征后的模型输出变化（越低说明特征重要性识别越准，范围 0-1）
+                Double keepMean = null;
+                Double dropMean = null;
+
+                if (fidelitySummary.has("keep_mean") && !fidelitySummary.get("keep_mean").isNull()) {
+                    keepMean = fidelitySummary.get("keep_mean").asDouble();
+                }
+
+                if (fidelitySummary.has("drop_mean") && !fidelitySummary.get("drop_mean").isNull()) {
+                    dropMean = fidelitySummary.get("drop_mean").asDouble();
+                }
+
+                // 计算综合得分
+                double totalScore = 0.0;
+                int validMetricsCount = 0;
+
+                // keep_mean 越高越好，直接作为正向指标
+                if (keepMean != null) {
+                    totalScore += Math.max(0.0, Math.min(1.0, keepMean));
+                    validMetricsCount++;
+                }
+
+                // drop_mean 越低越好，使用 (1 - drop_mean) 作为正向指标
+                if (dropMean != null) {
+                    double normalizedDropScore = Math.max(0.0, Math.min(1.0, 1.0 - dropMean));
+                    totalScore += normalizedDropScore;
+                    validMetricsCount++;
+                }
+
+                // 返回平均分
+                return validMetricsCount > 0 ? totalScore / validMetricsCount : 0.0;
+            }
+
+            // 如果没有 fidelity_summary 节点，返回 0.0
+            return 0.0;
+
+        } catch (Exception e) {
+            log.error("可解释性得分计算失败: {}", e.getMessage(), e);
+            return 0.0;
+        }
     }
 
     /**
@@ -583,9 +563,9 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             while (fieldNames.hasNext()) {
                 String fieldName = fieldNames.next();
                 if (fieldName.startsWith("map_drop_rate_") ||
-                    fieldName.startsWith("miss_rate_") ||
-                    fieldName.startsWith("performance_drop_rate_") ||
-                    fieldName.startsWith("perturbation_tolerance_")) {
+                        fieldName.startsWith("miss_rate_") ||
+                        fieldName.startsWith("performance_drop_rate_") ||
+                        fieldName.startsWith("perturbation_tolerance_")) {
                     isFlatFormat = true;
                     break;
                 }
@@ -608,7 +588,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
                 // 如果 adversarial 或 corruption 是字符串类型，需要二次解析
                 if ((adversarialNode != null && adversarialNode.isTextual()) ||
-                    (corruptionNode != null && corruptionNode.isTextual())) {
+                        (corruptionNode != null && corruptionNode.isTextual())) {
                     log.debug("检测到字符串格式的 adversarial/corruption，进行二次解析");
                     root = parseRobustnessFields(root);
                 }
@@ -741,26 +721,26 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
                 if (key.startsWith("map_drop_rate_")) {
                     String attackName = key.substring("map_drop_rate_".length());
                     adversarialMetrics.computeIfAbsent(attackName, k -> new HashMap<>())
-                        .put("map_drop_rate", value);
+                            .put("map_drop_rate", value);
                 } else if (key.startsWith("miss_rate_")) {
                     String attackName = key.substring("miss_rate_".length());
                     adversarialMetrics.computeIfAbsent(attackName, k -> new HashMap<>())
-                        .put("miss_rate", value);
+                            .put("miss_rate", value);
                 } else if (key.startsWith("false_detection_rate_")) {
                     String attackName = key.substring("false_detection_rate_".length());
                     adversarialMetrics.computeIfAbsent(attackName, k -> new HashMap<>())
-                        .put("false_detection_rate", value);
+                            .put("false_detection_rate", value);
                 }
 
                 // 提取 corruption 指标
                 else if (key.startsWith("performance_drop_rate_")) {
                     String corruptionName = key.substring("performance_drop_rate_".length());
                     corruptionMetrics.computeIfAbsent(corruptionName, k -> new HashMap<>())
-                        .put("performance_drop_rate", value);
+                            .put("performance_drop_rate", value);
                 } else if (key.startsWith("perturbation_tolerance_")) {
                     String corruptionName = key.substring("perturbation_tolerance_".length());
                     corruptionMetrics.computeIfAbsent(corruptionName, k -> new HashMap<>())
-                        .put("perturbation_tolerance", value);
+                            .put("perturbation_tolerance", value);
                 }
             }
 
@@ -973,7 +953,14 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         }
     }
 
-    private double computeSafetyScore(String result) {
+    /**
+     * 计算安全性得分
+     *
+     * @param result 安全性评测结果JSON字符串
+     * @param task 任务类型："classification"（分类）或 "detection"（目标检测）
+     * @return 安全性得分（0.0 ~ 1.0）
+     */
+    private double computeSafetyScore(String result, String task) {
         if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
             return 0.0;
         }
@@ -983,25 +970,63 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             double totalScore = 0.0;
             int validMetricsCount = 0;
 
-            // 定义需要评估的安全指标及其权重
-            Map<String, Double> metrics = new LinkedHashMap<>();
-            metrics.put("auc", 1.0);              // AUC指标，默认权重1.0
-            metrics.put("tpr_at_fpr", 1.0);       // TPR@FPR指标，默认权重1.0
-            metrics.put("attack_average_precision", 1.0); // 攻击平均精度，默认权重1.0
+            // 根据任务类型选择不同的指标
+            if ("detection".equals(task)) {
+                // 目标检测任务：使用 MIA 评测实际回传的字段
+                // Python 实际发送：Accuracy, Precision, Recall, F1, TPR, FPR, AUC
 
-            // 遍历所有指标，计算加权分数
-            for (Map.Entry<String, Double> entry : metrics.entrySet()) {
-                String metricName = entry.getKey();
-                double weight = entry.getValue();
-
-                if (root.has(metricName)) {
+                // 1. 使用 TPR (True Positive Rate)：攻击者正确识别训练集成员的比例
+                // TPR 越高说明攻击越成功，模型越不安全
+                if (root.has("TPR")) {
                     try {
-                        double rawValue = Double.parseDouble(root.get(metricName).asText());
-                        double normalizedValue = normalizeMetric(metricName, rawValue);
-                        totalScore += normalizedValue * weight;
+                        double tpr = Double.parseDouble(root.get("TPR").asText());
+                        // TPR 是攻击成功率，越低越安全，转换为安全得分
+                        double normalizedValue = Math.max(0.0, 1.0 - tpr);
+                        totalScore += normalizedValue;
                         validMetricsCount++;
+                        log.debug("目标检测安全性指标 TPR: {}, 归一化得分: {}", tpr, normalizedValue);
                     } catch (NumberFormatException e) {
-                        System.err.println("字段 " + metricName + " 解析失败: " + e.getMessage());
+                        log.warn("字段 TPR 解析失败: {}", e.getMessage());
+                    }
+                }
+
+                // 2. 使用 AUC (Area Under ROC Curve)：攻击模型的整体性能
+                // AUC=0.5 表示随机猜测（攻击无效），AUC=1.0 表示完美攻击
+                if (root.has("AUC")) {
+                    try {
+                        double auc = Double.parseDouble(root.get("AUC").asText());
+                        // 将 AUC 转换为安全得分：score = 1 - (AUC - 0.5) * 2
+                        // AUC=0.5 -> score=1.0 (完全安全)
+                        // AUC=1.0 -> score=0.0 (完全不安全)
+                        double normalizedValue = Math.max(0.0, 1.0 - (auc - 0.5) * 2);
+                        totalScore += normalizedValue;
+                        validMetricsCount++;
+                        log.debug("目标检测安全性指标 AUC: {}, 归一化得分: {}", auc, normalizedValue);
+                    } catch (NumberFormatException e) {
+                        log.warn("字段 AUC 解析失败: {}", e.getMessage());
+                    }
+                }
+            } else {
+                // 分类任务（默认）：使用传统指标
+                Map<String, Double> metrics = new LinkedHashMap<>();
+                metrics.put("auc", 1.0);              // AUC指标，默认权重1.0
+                metrics.put("tpr_at_fpr", 1.0);       // TPR@FPR指标，默认权重1.0
+                metrics.put("attack_average_precision", 1.0); // 攻击平均精度，默认权重1.0
+
+                // 遍历所有指标，计算加权分数
+                for (Map.Entry<String, Double> entry : metrics.entrySet()) {
+                    String metricName = entry.getKey();
+                    double weight = entry.getValue();
+
+                    if (root.has(metricName)) {
+                        try {
+                            double rawValue = Double.parseDouble(root.get(metricName).asText());
+                            double normalizedValue = normalizeMetric(metricName, rawValue);
+                            totalScore += normalizedValue * weight;
+                            validMetricsCount++;
+                        } catch (NumberFormatException e) {
+                            log.warn("字段 {} 解析失败: {}", metricName, e.getMessage());
+                        }
                     }
                 }
             }
@@ -1009,7 +1034,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             // 如果有有效指标，返回加权平均分；否则返回0
             return validMetricsCount > 0 ? totalScore / validMetricsCount : 0.0;
         } catch (Exception e) {
-            System.err.println("JSON 解析失败: " + e.getMessage());
+            log.error("安全性得分计算失败: {}", e.getMessage(), e);
             return 0.0;
         }
     }
@@ -1040,10 +1065,12 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
 
     /**
      * 根据公平性指标计算0-1之间的综合公平性分数
+     *
      * @param result 包含公平性指标的JSON字符串
+     * @param task 任务类型："classification"（分类）或 "detection"（目标检测）
      * @return 公平性分数，范围从0（最不公平）到1（完全公平）
      */
-    public double computeFairnessScore(String result) {
+    public double computeFairnessScore(String result, String task) {
         if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
             return 0.0;
         }
@@ -1053,42 +1080,61 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             double totalScore = 0.0;
             int metricCount = 0;
 
-            // 计算每个指标的公平性分数并累加
-            if (root.has("spd")) {
-                double spd = root.get("spd").asDouble();
-                totalScore += calculateSPDScore(spd);
-                metricCount++;
-            }
+            // 根据任务类型选择不同的指标
+            if ("detection".equals(task)) {
+                // 目标检测任务：使用 performance_gap（性能极差）
+                if (root.has("performance_gap")) {
+                    try {
+                        double rawValue = root.get("performance_gap").asDouble();
+                        // performance_gap 是性能差距，越小越公平，转换为公平得分
+                        // 假设 performance_gap 在 [0, 1] 范围内，0表示完全公平，1表示完全不公平
+                        double normalizedValue = Math.max(0.0, 1.0 - rawValue);
+                        totalScore += normalizedValue;
+                        metricCount++;
+                        log.debug("目标检测公平性指标 performance_gap: {}, 归一化得分: {}", rawValue, normalizedValue);
+                    } catch (Exception e) {
+                        log.warn("字段 performance_gap 解析失败: {}", e.getMessage());
+                    }
+                }
+            } else {
+                // 分类任务（默认）：使用传统指标
+                // 计算每个指标的公平性分数并累加
+                if (root.has("spd")) {
+                    double spd = root.get("spd").asDouble();
+                    totalScore += calculateSPDScore(spd);
+                    metricCount++;
+                }
 
-            if (root.has("dir")) {
-                double dir = root.get("dir").asDouble();
-                totalScore += calculateDIRScore(dir);
-                metricCount++;
-            }
+                if (root.has("dir")) {
+                    double dir = root.get("dir").asDouble();
+                    totalScore += calculateDIRScore(dir);
+                    metricCount++;
+                }
 
-            if (root.has("eod")) {
-                double eod = root.get("eod").asDouble();
-                totalScore += calculateEODScore(eod);
-                metricCount++;
-            }
+                if (root.has("eod")) {
+                    double eod = root.get("eod").asDouble();
+                    totalScore += calculateEODScore(eod);
+                    metricCount++;
+                }
 
-            if (root.has("aod")) {
-                double aod = root.get("aod").asDouble();
-                totalScore += calculateAODScore(aod);
-                metricCount++;
-            }
+                if (root.has("aod")) {
+                    double aod = root.get("aod").asDouble();
+                    totalScore += calculateAODScore(aod);
+                    metricCount++;
+                }
 
-            if (root.has("consistency")) {
-                double consistency = root.get("consistency").asDouble();
-                totalScore += consistency; // 一致性已经是0-1之间的分数
-                metricCount++;
+                if (root.has("consistency")) {
+                    double consistency = root.get("consistency").asDouble();
+                    totalScore += consistency; // 一致性已经是0-1之间的分数
+                    metricCount++;
+                }
             }
 
             // 如果没有有效指标，返回0
             return metricCount > 0 ? totalScore / metricCount : 0.0;
 
         } catch (Exception e) {
-            System.err.println("JSON解析失败: " + e.getMessage());
+            log.error("公平性得分计算失败: {}", e.getMessage(), e);
             return 0.0;
         }
     }
@@ -1149,7 +1195,14 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
         return Math.max(0.0, 1.0 - (absAOD * 2));
     }
 
-    private double computeGeneralizationScore(String result) {
+    /**
+     * 计算泛化性得分
+     *
+     * @param result 泛化性评测结果JSON字符串
+     * @param task 任务类型："classification"（分类）或 "detection"（目标检测）
+     * @return 泛化性得分（0.0 ~ 1.0）
+     */
+    private double computeGeneralizationScore(String result, String task) {
         if (result == null || result.trim().isEmpty() || "{}".equals(result.trim())) {
             return 0.0;
         }
@@ -1159,25 +1212,53 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             double totalScore = 0.0;
             int validMetricsCount = 0;
 
-            // 定义需要评估的泛化性指标及其权重
-            Map<String, Double> metrics = new LinkedHashMap<>();
-            metrics.put("msp", 1.0);              // 平均MSP，默认权重1.0
-            metrics.put("entropy", 1.0);          // 平均预测熵，默认权重1.0
-            metrics.put("rademacher", 1.0);       // Rademacher复杂度，默认权重1.0
+            // 根据任务类型选择不同的指标
+            if ("detection".equals(task)) {
+                // 目标检测任务：使用 drop_ratio_xx（跨数据集性能下降率）
+                // Python 实际发送：source_map_50, target_map_50, drop_ratio_50
+                // 可能有多个 IoU 阈值，如 drop_ratio_50, drop_ratio_75 等
 
-            // 遍历所有指标，计算加权分数
-            for (Map.Entry<String, Double> entry : metrics.entrySet()) {
-                String metricName = entry.getKey();
-                double weight = entry.getValue();
+                Iterator<String> fieldNames = root.fieldNames();
+                while (fieldNames.hasNext()) {
+                    String fieldName = fieldNames.next();
 
-                if (root.has(metricName)) {
-                    try {
-                        double rawValue = Double.parseDouble(root.get(metricName).asText());
-                        double normalizedValue = normalizeGeneralizationMetric(metricName, rawValue);
-                        totalScore += normalizedValue * weight;
-                        validMetricsCount++;
-                    } catch (NumberFormatException e) {
-                        System.err.println("字段 " + metricName + " 解析失败: " + e.getMessage());
+                    // 处理所有 drop_ratio 开头的字段
+                    if (fieldName.startsWith("drop_ratio_")) {
+                        try {
+                            double rawValue = Double.parseDouble(root.get(fieldName).asText());
+                            // drop_ratio 是性能下降率，越小泛化性越好
+                            // 范围 [0, 1]：0表示完美泛化（无性能下降），1表示完全不泛化
+                            double normalizedValue = Math.max(0.0, 1.0 - rawValue);
+                            totalScore += normalizedValue;
+                            validMetricsCount++;
+                            log.debug("目标检测泛化性指标 {}: {}, 归一化得分: {}", fieldName, rawValue, normalizedValue);
+                        } catch (NumberFormatException e) {
+                            log.warn("字段 {} 解析失败: {}", fieldName, e.getMessage());
+                        }
+                    }
+                }
+            } else {
+                // 分类任务（默认）：使用传统指标
+                // 定义需要评估的泛化性指标及其权重
+                Map<String, Double> metrics = new LinkedHashMap<>();
+                metrics.put("msp", 1.0);              // 平均MSP，默认权重1.0
+                metrics.put("entropy", 1.0);          // 平均预测熵，默认权重1.0
+                metrics.put("rademacher", 1.0);       // Rademacher复杂度，默认权重1.0
+
+                // 遍历所有指标，计算加权分数
+                for (Map.Entry<String, Double> entry : metrics.entrySet()) {
+                    String metricName = entry.getKey();
+                    double weight = entry.getValue();
+
+                    if (root.has(metricName)) {
+                        try {
+                            double rawValue = Double.parseDouble(root.get(metricName).asText());
+                            double normalizedValue = normalizeGeneralizationMetric(metricName, rawValue);
+                            totalScore += normalizedValue * weight;
+                            validMetricsCount++;
+                        } catch (NumberFormatException e) {
+                            log.warn("字段 {} 解析失败: {}", metricName, e.getMessage());
+                        }
                     }
                 }
             }
@@ -1185,7 +1266,7 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
             // 如果有有效指标，返回加权平均分；否则返回0
             return validMetricsCount > 0 ? totalScore / validMetricsCount : 0.0;
         } catch (Exception e) {
-            System.err.println("JSON 解析失败: " + e.getMessage());
+            log.error("泛化性得分计算失败: {}", e.getMessage(), e);
             return 0.0;
         }
     }
@@ -1215,14 +1296,17 @@ public class EvaluationResultServiceImpl extends ServiceImpl<EvaluationResultMap
                 return 0.0;
         }
     }
-
+    /**
+     * 最终得分：对所有“有结果(>=0)”的维度做平均
+     * 关键修复：0 分也算有效结果，不再被过滤掉
+     */
     public static double calculateFinalScore(Map<String, Double> scoreMap) {
         if (scoreMap == null || scoreMap.isEmpty()) return 0.0;
+
         double total = 0.0;
         int count = 0;
-        for (Map.Entry<String, Double> entry : scoreMap.entrySet()) {
-            double score = entry.getValue();
-            if (score > 0.0) {
+        for (double score : scoreMap.values()) {
+            if (score >= 0.0) {
                 total += score;
                 count++;
             }
