@@ -1,5 +1,5 @@
 server:
-  port: 8081
+  port: ${SERVER_PORT:8081}
   tomcat:
     connection-timeout: 3600000
 spring:
@@ -12,9 +12,9 @@ spring:
     name: secAI-container-engine
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://10.195.85.153:3306/Sec_ruoyi
-    username: root
-    password: 123456
+    url: ${DATASOURCE_URL:jdbc:mysql://10.195.85.153:3306/Sec_ruoyi}
+    username: ${DATASOURCE_USERNAME:root}
+    password: ${DATASOURCE_PASSWORD:123456}
 
 
 knife4j:
@@ -45,43 +45,43 @@ mybatis-plus:
 #  type-aliases-package: com.example.secaicontainerengine.pojo.entity
 
 k8s:
-  config: k8s/config
+  config: ${K8S_CONFIG_PATH:k8s/config}
   yaml: template/Pod.yml
   adversarial-yaml: template/attack_pod.yml
   adversarial-gpu-yaml: template/attack_pod_gpu.yml
   evaluation-resources:
     limits:
-      gpu-memory: 2000
-      gpu-core: 0
-      gpu-num: 0
+      gpu-memory: ${K8S_GPU_MEMORY:2000}
+      gpu-core: ${K8S_GPU_CORE:0}
+      gpu-num: ${K8S_GPU_NUM:0}
 
 
 sftp:
 #  host: 10.195.76.134
-  host: 10.195.85.153
-  port: 22
-  username: xd-1 #nfs服务器用户名
-  password: xd@123456 #nfs服务器密码
-  flag: data.done #创建一个该名字的空文件，代表数据上传nfs服务器完毕
+  host: ${SFTP_HOST:10.195.85.153}
+  port: ${SFTP_PORT:22}
+  username: ${SFTP_USERNAME:xd-1} #nfs服务器用户名
+  password: ${SFTP_PASSWORD:xd@123456} #nfs服务器密码
+  flag: ${SFTP_FLAG:data.done} #创建一个该名字的空文件，代表数据上传nfs服务器完毕
 
 nfs:
   # /home/nfs/k8s/model_data/userId/modelId/originData
-  rootPath: /home/xd-1/k8s
-  userData: userData
-  evaluationData: evaluationData
-  outputData: output
-  resultData: result
-  systemData: systemData
-  origin-data: originData
+  rootPath: ${NFS_ROOT_PATH:/home/xd-1/k8s}
+  userData: ${NFS_USER_DATA_DIR:userData}
+  evaluationData: ${NFS_EVALUATION_DATA_DIR:evaluationData}
+  outputData: ${NFS_OUTPUT_DATA_DIR:output}
+  resultData: ${NFS_RESULT_DATA_DIR:result}
+  systemData: ${NFS_SYSTEM_DATA_DIR:systemData}
+  origin-data: ${NFS_ORIGIN_DATA_DIR:originData}
 
 docker:
-  registryHost: 10.195.85.153:5000
+  registryHost: ${DOCKER_REGISTRY_HOST:10.195.85.153:5000}
 #  registryHost: 10.195.76.134:5000
 
 #localhost中的ip，需要修改为自己启动服务的ip
 localhost:
-  logUrl: http://10.196.81.41:8081/log
-  resultUrl: http://10.196.81.41:8081/evaluate/result
+  logUrl: ${LOCAL_LOG_URL:http://10.196.81.41:8081/log}
+  resultUrl: ${LOCAL_RESULT_URL:http://10.196.81.41:8081/evaluate/result}
 #  logUrl: http://10.169.1.82:8081/log
 #  resultUrl: http://10.169.1.82:8081/evaluate/result
 #  logUrl: http://10.195.236.86:8081/log
